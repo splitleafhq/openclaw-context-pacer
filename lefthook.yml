@@ -5,4 +5,4 @@ pre-push:
     ci:
       run: |
         unset $(git rev-parse --local-env-vars)
-        npm run lint && npm run typecheck && npm test && npm run build && git diff --exit-code -- dist && test -z "$(git ls-files --others --exclude-standard -- dist)"
+        npm run lint && npm run typecheck && npm test && npm run build && git diff --exit-code HEAD -- dist && test -z "$(git ls-files --others --exclude-standard -- dist)"

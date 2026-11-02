@@ -14,6 +14,8 @@ npm run build
 
 Commit `dist/` with any change to `src/`; CI fails when it doesn't match a fresh build.
 
+Run `lefthook install` once per clone with [lefthook](https://lefthook.dev) installed. The pre-push hook then runs the same checks as CI, and a failed check stops the push.
+
 `npm test` fails below 80% line, 85% branch or 80% function coverage of `src/`. The floor catches tests that go missing; don't add a test only to raise it.
 
 Run the checks in a separate clone, or delete `node_modules/` from a checkout you've installed with `openclaw plugins install --link`. OpenClaw's plugin loader maps `openclaw/plugin-sdk/*` to the gateway's own install (2026.10.3), so a second copy only adds a version that can drift from the host.

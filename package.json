@@ -56,5 +56,8 @@
     "dist/",
     "src/",
     "openclaw.plugin.json"
-  ]
+  ],
+  "overrides": {
+    "minimatch": "^11.0.4"
+  }
 }

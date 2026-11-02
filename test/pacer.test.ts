@@ -85,6 +85,15 @@ test('runs are separate and bounded', () => {
   assert.equal(pacer.trackedRuns, 1);
 });
 
+test('a run with recent results is not dropped for newer runs', () => {
+  const pacer = new Pacer(resolveConfig({ maxTrackedRuns: 2 }));
+  pacer.onToolResult('a', 'web_fetch', {});
+  pacer.onToolResult('b', 'web_fetch', {});
+  pacer.onToolResult('a', 'web_fetch', {});
+  pacer.onToolResult('c', 'web_fetch', {});
+  assert.match(defined(pacer.onToolResult('a', 'web_fetch', {})), /3 gathering results/);
+});
+
 test('invalid config falls back to defaults and clamps numbers', () => {
   const config = resolveConfig({ agents: [''], notes: { everyResults: 999, pathContains: '' }, wrapUpContextFraction: 'x' });
   assert.deepEqual(config.agents, []);

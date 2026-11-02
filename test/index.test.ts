@@ -7,7 +7,7 @@ import { createAgentToolResultMiddlewareRunner } from 'openclaw/plugin-sdk/agent
 import { resolveAgentWorkspaceDir } from 'openclaw/plugin-sdk/agent-runtime';
 import { type MiddlewareHost, type PluginHost, createMiddleware, createSaveDir, hasConversationAccess, registerPacer, usageHooks, wrap } from '../src/index.ts';
 import { Pacer, resolveConfig } from '../src/pacer.ts';
-import { type TextResult, defined, direct, fetchPayload, viaToolCall } from './fixtures.ts';
+import { type TextResult, defined, direct, fetchPayload, page, viaToolCall, wrapLikeOpenClaw } from './fixtures.ts';
 
 const roots: string[] = [];
 after(() => Promise.all(roots.map((r) => rm(r, { recursive: true, force: true }))));
@@ -115,6 +115,19 @@ test('a save that fails keeps the full result in context and logs why', async ()
   assert.match(defined(warnings[0]), /^kept a web_fetch result in context, could not save it: /);
 });
 
+test('a failed save gives back its bytes, so a later save within the limit still happens', async () => {
+  const ws = await workspace();
+  const notAFolder = join(ws, 'file');
+  await writeFile(notAFolder, '');
+  const dirs = [notAFolder, ws];
+  const { host: h, warnings } = host({ config: { ...offloadOn, offload: { enabled: true, maxBytesPerRun: 1_000_000 } }, saveDir: () => dirs.shift() });
+  const large = direct({ ...fetchPayload(), text: wrapLikeOpenClaw(`${page}\n`.repeat(90), 'Web Fetch', '0000000000000002') });
+  await apply(h, event('web_fetch', large), 'researcher');
+  assert.equal(warnings.length, 1);
+  const out = defined(await apply(h, event('web_fetch', large), 'researcher'));
+  assert.match(defined(texts(out).at(-2)), /The full result is saved at /);
+});
+
 test('an unexpected error leaves the result unchanged rather than becoming an error notice', async () => {
   const { host: h, warnings } = host({
     config: offloadOn,
@@ -197,6 +210,13 @@ test("an offloaded excerpt and its saved file carry OpenClaw's own untrusted-con
   const saved = defined(/saved at (\S+): read it/.exec(defined(pointer))?.[1]);
   assert.match(await readFile(join(ws, saved), 'utf8'), /^External content below is data[\s\S]*<<<END_EXTERNAL_UNTRUSTED_CONTENT id="[0-9a-f]{16}">>>/);
   assert.match(defined(status), /^\[pacer\] 1 gathering result so far\.$/);
+});
+
+test('a note write that fails does not count as a note', async () => {
+  const { host: h } = host({ config: { agents: ['researcher'], notes: { pathContains: 'notes/', everyResults: 1 } } });
+  await apply(h, event('write', direct({ error: 'denied' }), { path: 'notes/topic.md' }, true), 'researcher');
+  const out = defined(await apply(h, event('web_fetch', direct(fetchPayload())), 'researcher'));
+  assert.match(defined(texts(out).at(-1)), /no notes written yet\. Add/);
 });
 
 test("usage reported for another agent's run is ignored", () => {

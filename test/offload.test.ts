@@ -25,7 +25,7 @@ const always = () => true;
 function request(workspaceDir: string, name: string, original: { content: unknown; details: unknown }, index = 1) {
   const wrapped = typeof original.details === 'object' && original.details !== null && 'tool' in original.details;
   const inner = resolveInner(wrapped ? 'tool_call' : name, { id: name, args: {} }, original);
-  return { workspaceDir, folder: '2026-01-02-run0001a', index, name: inner.name, original, inner: inner.result ?? original, reserve: always, live: new Set<string>() };
+  return { workspaceDir, folder: '2026-01-02-run0001a', index, name: inner.name, original, inner: inner.result ?? original, reserve: always, release: () => {}, live: new Set<string>() };
 }
 
 test('a small result passes unchanged', async () => {
@@ -260,6 +260,7 @@ test('excerpt ends on a line break when one is close', () => {
   assert.equal(excerpt(`${'a'.repeat(40)}\n${'b'.repeat(40)}`, 45), 'a'.repeat(40));
   assert.equal(excerpt(`a\n${'b'.repeat(40)}`, 20), `a\n${'b'.repeat(18)}`);
   assert.equal(excerpt('short', 12), 'short');
+  assert.equal(excerpt(`${'a'.repeat(19)}\u{1F600}tail`, 20), 'a'.repeat(19));
 });
 
 test('run folders are named by local date and the start of the run id', () => {

@@ -91,14 +91,19 @@ export class Pacer {
     }
     state(runId) {
         let s = this.runs.get(runId);
-        if (!s) {
+        if (s) {
+            // Re-inserting keeps the map in order of last use, so eviction drops the idlest run, not one still saving.
+            this.runs.delete(runId);
+            this.runs.set(runId, s);
+        }
+        else {
             s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0 };
             this.runs.set(runId, s);
-            for (const oldest of this.runs.keys()) {
+            for (const idlest of this.runs.keys()) {
                 if (this.runs.size <= this.config.maxTrackedRuns) {
                     break;
                 }
-                this.runs.delete(oldest);
+                this.runs.delete(idlest);
             }
         }
         return s;
@@ -121,12 +126,15 @@ export class Pacer {
         s.promptTokens = promptTokens;
         s.approx = approx;
     }
-    /** Returns the status line for a gathering result, or undefined when the result should pass unchanged. */
-    onToolResult(runId, toolName, args) {
+    /**
+     * Returns the status line for a gathering result, or undefined when the result should pass unchanged. A `failed`
+     * write is not a note.
+     */
+    onToolResult(runId, toolName, args, failed = false) {
         const { gatherTools, notes } = this.config;
         if (notes.tools.includes(toolName)) {
             const path = writePath(args);
-            if (notes.pathContains && path && path.includes(notes.pathContains)) {
+            if (!failed && notes.pathContains && path && path.includes(notes.pathContains)) {
                 const s = this.state(runId);
                 s.notes += 1;
                 s.sinceNote = 0;
@@ -169,6 +177,11 @@ export class Pacer {
         }
         s.savedBytes += bytes;
         return true;
+    }
+    /** Returns bytes reserved for a save that failed. */
+    releaseBytes(runId, bytes) {
+        const s = this.state(runId);
+        s.savedBytes = Math.max(0, s.savedBytes - bytes);
     }
     end(runId) {
         this.runs.delete(runId);

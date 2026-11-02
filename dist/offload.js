@@ -41,7 +41,12 @@ export function excerpt(text, max) {
         return text;
     }
     const cut = text.lastIndexOf('\n', max);
-    return text.slice(0, cut > max * 0.8 ? cut : max);
+    if (cut > max * 0.8) {
+        return text.slice(0, cut);
+    }
+    // A lone high surrogate is malformed UTF-16, which a provider may reject.
+    const high = text.charCodeAt(max - 1);
+    return text.slice(0, high >= 0xd800 && high <= 0xdbff ? max - 1 : max);
 }
 /** Keeps the newest `maxRuns` folders this plugin created in `directory`, counting the current one, plus every live one. */
 async function prune(workspace, directory, maxRuns, current, live) {
@@ -166,18 +171,25 @@ export async function offload(config, wrap, req) {
     if (!req.reserve(bytes)) {
         return undefined;
     }
-    const workspace = await root(req.workspaceDir);
     const runDir = `${config.directory}/${req.folder}`;
-    await workspace.mkdir(runDir, { private: true });
-    const marker = `${runDir}/${SENTINEL}`;
-    if (!(await workspace.exists(marker))) {
-        await createIfAbsent(workspace, `${runDir}/.gitignore`, GITIGNORE);
-        await createIfAbsent(workspace, marker, 'Created by the context-pacer OpenClaw plugin; old run folders are deleted.\n');
-        await removeLegacyGitignore(workspace, config.directory);
-        await prune(workspace, config.directory, config.maxRuns, req.folder, req.live);
-    }
     const base = `${String(req.index).padStart(3, '0')}-${req.name.replaceAll(/[^A-Za-z0-9_-]/g, '')}`;
-    const savedPath = await createUnique(workspace, runDir, base, saved);
+    let savedPath;
+    try {
+        const workspace = await root(req.workspaceDir);
+        await workspace.mkdir(runDir, { private: true });
+        const marker = `${runDir}/${SENTINEL}`;
+        if (!(await workspace.exists(marker))) {
+            await createIfAbsent(workspace, `${runDir}/.gitignore`, GITIGNORE);
+            await createIfAbsent(workspace, marker, 'Created by the context-pacer OpenClaw plugin; old run folders are deleted.\n');
+            await removeLegacyGitignore(workspace, config.directory);
+            await prune(workspace, config.directory, config.maxRuns, req.folder, req.live);
+        }
+        savedPath = await createUnique(workspace, runDir, base, saved);
+    }
+    catch (error) {
+        req.release(bytes);
+        throw error;
+    }
     const shown = excerpt(body, config.excerptChars);
     const fullPage = spillText === undefined ? '' : `, plus the full page (${spillText.length.toLocaleString('en-US')} characters)`;
     const pointer = `[pacer] Showing the first ${shown.length.toLocaleString('en-US')} of ${body.length.toLocaleString('en-US')} characters${fullPage}. The full result is saved at ${savedPath}: read it with offset and limit if you need more.`;

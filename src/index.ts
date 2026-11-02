@@ -157,12 +157,12 @@ export function createMiddleware(host: MiddlewareHost): Middleware {
         return undefined;
       }
       const inner = resolveInner(event.toolName, event.args, event.result);
-      const line = pacer.onToolResult(runId, inner.name, inner.args);
+      const failed = event.isError === true || isErrorResult(event.result);
+      const line = pacer.onToolResult(runId, inner.name, inner.args, failed);
       if (!line) {
         return undefined;
       }
       let result = event.result;
-      const failed = event.isError === true || isErrorResult(event.result);
       const saveDir = pacer.config.offload.enabled && inner.result && !failed ? host.saveDir(agentId, event.cwd) : undefined;
       if (inner.result && saveDir !== undefined) {
         try {
@@ -174,6 +174,7 @@ export function createMiddleware(host: MiddlewareHost): Middleware {
             original: event.result,
             inner: inner.result,
             reserve: (bytes) => pacer.reserveBytes(runId, bytes),
+            release: (bytes) => pacer.releaseBytes(runId, bytes),
             live: pacer.liveFolders(),
           });
           if (done) {

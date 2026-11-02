@@ -10,13 +10,13 @@ Config lives at `plugins.entries.context-pacer.config`. Anything missing or inva
 | `notes.tools` | `["write", "edit"]` | Tools that can write a note |
 | `notes.everyResults` | `3` | Ask for a note after this many gathering results without one (1–20) |
 | `wrapUpContextFraction` | `0.6` | Share of the context budget at which the line says to stop gathering and write the answer (0.2–0.95) |
-| `maxTrackedRuns` | `50` | Most runs tracked in memory at once (1–1000) |
+| `maxTrackedRuns` | `50` | Most runs tracked in memory at once (1–1000); the one idle longest is dropped beyond this |
 | `offload.enabled` | `false` | Move large gathering results to files |
 | `offload.thresholdChars` | `6000` | Offload once the text the model would see exceeds this many characters (1,000–100,000) |
 | `offload.excerptChars` | `4000` | Characters shown in place of an offloaded result (500–20,000, and at most `thresholdChars` − 1,000) |
 | `offload.directory` | `".context-pacer"` | Workspace-relative folder for saved results |
 | `offload.maxRuns` | `10` | Run folders kept in the directory (1–100), plus the folders of runs still in progress |
-| `offload.maxBytesPerRun` | `25000000` | Most bytes saved per run (1 MB–500 MB); past this, results stay in context. With the conversation-access grant, it restarts when a run makes another attempt (see below) |
+| `offload.maxBytesPerRun` | `25000000` | Most bytes saved per run (1 MB–500 MB); past this, results stay in context. A save that fails gives its bytes back. With the conversation-access grant, it restarts when a run makes another attempt (see below) |
 
 OpenClaw has no convention for an agent's working notes; its `memory/` folder is durable memory that memory search indexes and later sessions load, so it isn't a default here.
 
@@ -72,7 +72,7 @@ Offloaded results are saved under `<workspace>/<offload.directory>/<YYYY-MM-DD>-
 - **Files are private:** mode 0600, in folders with mode 0700.
 - **Path rules:** `offload.directory` must be a plain relative path; a leading dot is fine, `.` and `..` are not. Anything else falls back to the default.
 - **No symlinks, no overwrites:** unless the workspace is read-only to it, the agent can write there too, so every save goes through OpenClaw's root-bounded file API (`root` from `openclaw/plugin-sdk/security-runtime`). It refuses a symlink anywhere below the workspace, including a dangling one and one swapped in during a save, and never replaces an existing file. How strictly a swap is caught depends on the platform and fs-safe's native helper (`@openclaw/fs-safe` 0.24.2, bundled with OpenClaw 2026.10.3, `docs/security-model.md`).
-- **Cleanup:** each run folder holds a `.context-pacer-run` marker. When a run saves its first file, marked folders beyond the newest `offload.maxRuns` are deleted, except those of runs the pacer still tracks. A run is tracked until `maxTrackedRuns` newer runs have started, so at most `offload.maxRuns` + `maxTrackedRuns` folders are kept. With the conversation-access grant, `agent_end` also stops tracking a run at the end of each attempt, so a retried run's folder is unprotected until the retry saves again (#14). Folders without the marker are never touched.
+- **Cleanup:** each run folder holds a `.context-pacer-run` marker. When a run saves its first file, marked folders beyond the newest `offload.maxRuns` are deleted, except those of runs the pacer still tracks. A run is tracked until `maxTrackedRuns` other runs have been active since its last result, so at most `offload.maxRuns` + `maxTrackedRuns` folders are kept. With the conversation-access grant, `agent_end` also stops tracking a run at the end of each attempt, so a retried run's folder is unprotected until the retry saves again (#14). Folders without the marker are never touched.
 - **Shared sandbox workspaces:** under `none` or `ro`, the sandbox workspace follows the sandbox scope. With `scope: "shared"`, every sandboxed agent saves into the same one, so their run folders share one `offload.maxRuns` budget, and cleanup can delete another agent's older, finished folders (OpenClaw 2026.10.3, `src/agents/sandbox/shared.ts`).
 
 ## How the defaults were chosen

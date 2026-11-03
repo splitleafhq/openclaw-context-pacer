@@ -1,6 +1,6 @@
 {
-  "name": "@seriouslysean/openclaw-context-pacer",
-  "version": "0.1.0",
+  "name": "@splitleafhq/openclaw-context-pacer",
+  "version": "0.1.1",
   "private": true,
   "description": "OpenClaw plugin that paces agents that gather with tools: a status line on each gathering result, and optionally large results moved to files.",
   "keywords": [
@@ -9,11 +9,11 @@
     "agents",
     "context"
   ],
-  "homepage": "https://github.com/seriouslysean/openclaw-context-pacer#readme",
-  "bugs": "https://github.com/seriouslysean/openclaw-context-pacer/issues",
+  "homepage": "https://github.com/splitleafhq/openclaw-context-pacer#readme",
+  "bugs": "https://github.com/splitleafhq/openclaw-context-pacer/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/seriouslysean/openclaw-context-pacer.git"
+    "url": "git+https://github.com/splitleafhq/openclaw-context-pacer.git"
   },
   "type": "module",
   "license": "MIT",

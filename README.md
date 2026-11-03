@@ -31,7 +31,7 @@ Nothing is dropped: the agent can `read` the rest when it needs it. Offload appl
 Pinned to a tag or commit:
 
 ```sh
-openclaw plugins install git:github.com/seriouslysean/openclaw-context-pacer@<tag or commit> --force --accept-capabilities
+openclaw plugins install git:github.com/splitleafhq/openclaw-context-pacer@<tag or commit> --force --accept-capabilities
 openclaw plugins enable context-pacer
 openclaw config set plugins.entries.context-pacer.config '{"agents":["<agent id>"],"offload":{"enabled":true}}' --strict-json
 openclaw gateway restart

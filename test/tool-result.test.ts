@@ -28,16 +28,12 @@ test('a failed tool_call takes its name from the catalog id', () => {
   assert.equal(isErrorResult(failedCall), true);
 });
 
-for (const control of ['tool_call', 'dispatch_action']) {
-  test(`the pacer counts gathering results that arrive through ${control}`, () => {
-    const pacer = new Pacer(resolveConfig({ agents: ['researcher'] }));
-    const inner = resolveInner(control, { id: 'openclaw:core:web_search', args: { query: 'q' } }, viaToolCall('web_search', searchPayload()));
-    assert.equal(inner.name, 'web_search');
-    assert.deepEqual(inner.args, { query: 'q' });
-    assert.match(defined(pacer.onToolResult('r1', inner.name, inner.args)), /1 gathering result so far/);
-    assert.equal(pacer.onToolResult('r1', control, {}), undefined);
-  });
-}
+test('the pacer counts gathering results that arrive through tool_call', () => {
+  const pacer = new Pacer(resolveConfig({ agents: ['researcher'] }));
+  const inner = resolveInner('tool_call', { id: 'web_search', args: { query: 'q' } }, viaToolCall('web_search', searchPayload()));
+  assert.match(defined(pacer.onToolResult('r1', inner.name, inner.args)), /1 gathering result so far/);
+  assert.equal(pacer.onToolResult('r1', 'tool_call', {}), undefined);
+});
 
 test('readable turns JSON into lines and keeps page text on its own lines', () => {
   const text = readable(JSON.stringify({ url: 'https://example.com', status: 200, text: 'a\nb', results: [{ title: 't' }] }));

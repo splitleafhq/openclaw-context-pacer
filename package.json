@@ -1,6 +1,6 @@
 {
   "name": "@splitleafhq/openclaw-context-pacer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "OpenClaw plugin that paces agents that gather with tools: a status line on each gathering result, and optionally large results moved to files.",
   "keywords": [

@@ -48,7 +48,7 @@ When middleware throws, OpenClaw replaces the result with "Tool output unavailab
 
 ## Tool Search
 
-When `tools.toolSearch` is unset, OpenClaw turns Tool Search on. Deferred tools such as `web_search` and `web_fetch` then run through its `tool_call` control, and middleware sees `toolName: "tool_call"`. The plugin reads the real tool from the result's `details.tool.name`, or from the catalog id in the call's arguments when the call failed.
+When `tools.toolSearch` is unset, OpenClaw turns Tool Search on. Deferred tools such as `web_search` and `web_fetch` then run through its call control, and middleware sees the control's name as `toolName`. The control is `dispatch_action` in OpenClaw 2026.11.2 and was `tool_call` before (docs/tools/tool-search.md, "Upgrading"); the plugin accepts both, with the same arguments and result shape. The plugin reads the real tool from the result's `details.tool.name`, or from the catalog id in the call's arguments when the call failed.
 
 In 2026.10.3, the model sees the whole `tool_call` object as escaped JSON, with the tool's text in it twice: once in `content` and once in `details`. On one research agent:
 

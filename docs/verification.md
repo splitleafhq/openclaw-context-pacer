@@ -5,7 +5,7 @@
 - **Unit tests** (`npm test`) cover:
   - the status line and its escalation;
   - config fallbacks and clamping;
-  - unwrapping `tool_call`;
+  - unwrapping Tool Search's call control, under both `tool_call` and `dispatch_action`;
   - offload: excerpts, saved files, the "Full page" copy, the path rules, cleanup and `.gitignore`;
   - symlinks: a symlinked save folder, a dangling symlink at the run marker, and a run folder swapped for a symlink between a path check and the write;
   - where saves go for each sandbox mode, workspace access and backend, given the working directory a run reports;

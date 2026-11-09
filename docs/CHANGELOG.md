@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Tool Search's renamed call control:** OpenClaw renamed Tool Search's call control from `tool_call` to `dispatch_action` (2026.11.2 docs/tools/tool-search.md, "Upgrading"). The pacer matched only `tool_call`, so every result through `dispatch_action` was attributed to `dispatch_action`, matched no gathering tool, and got no status line, no notes nudge and no offload. The pacer now accepts both names.
 - **Every agent's tool results:** OpenClaw 2026.10.10 and 2026.11.1 no longer cut or replace a tool result past the middleware limits (text over 100,000 characters, image data, `details` size) when middleware is registered; 2026.10.8 and earlier did, for every agent on the `openclaw` runtime. Read in `dist/tool-result-middleware-*.mjs` of each package. Still applied: nested tool-result blocks are flattened with text cut to 100,000 characters, and a throwing handler's result is replaced by a notice. The pacer needed no code change; the docs and the guard test now describe the new behaviour. See [How it works](how-it-works.md#every-agents-results).
 
 ## 0.1.1

@@ -2,31 +2,34 @@
  * Reading tool results the way OpenClaw hands them to middleware.
  *
  * With Tool Search on (OpenClaw's default when `tools.toolSearch` is unset), deferred tools such as `web_search` and
- * `web_fetch` run through the `tool_call` control. Middleware then sees `toolName: "tool_call"`, `args: { id, args }`
- * and `details: { tool: { name, … }, result: { content, details } }`. In 2026.10.3 the model sees that whole object as
+ * `web_fetch` run through Tool Search's call control: `dispatch_action`, earlier named `tool_call` (OpenClaw 2026.11.2
+ * docs/tools/tool-search.md, "Upgrading"). Middleware then sees that name as `toolName`, `args: { id, args }` and
+ * `details: { tool: { name, … }, result: { content, details } }`. In 2026.10.3 the model sees that whole object as
  * escaped JSON, with the page text twice (in `content` and in `details`); upstream #169537 drops `details` from it.
  */
-/** Tool Search's call control in OpenClaw 2026.10. */
+/** Tool Search's call control: its earlier name and its current one. */
 export const TOOL_CALL = 'tool_call';
+export const DISPATCH_ACTION = 'dispatch_action';
+const CALL_CONTROLS = new Set([TOOL_CALL, DISPATCH_ACTION]);
 export function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-/** The tool that actually ran and its own result, whether it was called directly or through `tool_call`. */
+/** The tool that actually ran and its own result, whether it was called directly or through the call control. */
 export function resolveInner(toolName, args, result) {
-    if (toolName !== TOOL_CALL) {
+    if (!CALL_CONTROLS.has(toolName)) {
         return { name: toolName, args, result, wrapped: false };
     }
     const call = isRecord(args) ? args : {};
     const innerArgs = isRecord(call.args) ? call.args : {};
     const details = result.details;
-    // Successful calls carry the resolved tool; failed ones carry `tool: "tool_call"` and an error string.
+    // Successful calls carry the resolved tool; failed ones carry the control's name as `tool` and an error string.
     if (isRecord(details) && isRecord(details.tool) && typeof details.tool.name === 'string') {
         const inner = isRecord(details.result) && Array.isArray(details.result.content) ? details.result : undefined;
         return { name: details.tool.name, args: innerArgs, result: inner, wrapped: true };
     }
     // The model may pass a bare name or a catalog id such as "openclaw:core:web_fetch".
     const id = typeof call.id === 'string' ? call.id : '';
-    return { name: id.slice(id.lastIndexOf(':') + 1) || TOOL_CALL, args: innerArgs, wrapped: true };
+    return { name: id.slice(id.lastIndexOf(':') + 1) || toolName, args: innerArgs, wrapped: true };
 }
 /** All text blocks joined, or undefined when the result holds anything else (an image, say). */
 export function textOf(result) {

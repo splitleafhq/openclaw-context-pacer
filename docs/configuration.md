@@ -4,7 +4,7 @@ Config lives at `plugins.entries.context-pacer.config`. Anything missing or inva
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agents` | `[]` | Agent ids to pace. Empty paces no agent, but while the plugin is enabled OpenClaw still applies its middleware limits to the tool results of every agent on its `openclaw` runtime ([Every agent's results](how-it-works.md#every-agents-results)) |
+| `agents` | `[]` | Agent ids to pace. Empty paces no agent, but while the plugin is enabled every agent's tool results on OpenClaw's `openclaw` runtime pass through its middleware runner, which cut results past its limits up to 2026.10.8 ([Every agent's results](how-it-works.md#every-agents-results)) |
 | `gatherTools` | `["web_search", "web_fetch"]` | Tools whose results count as gathering and get the status line |
 | `notes.pathContains` | unset | A write counts as a note when its path contains this. Unset turns note tracking off |
 | `notes.tools` | `["write", "edit"]` | Tools that can write a note |

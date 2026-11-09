@@ -19,7 +19,13 @@ State is per-run counters, at most `maxTrackedRuns` runs at once. Without offloa
 
 ## Every agent's results
 
-Registering tool-result middleware affects more than the agents in `agents`. While any middleware is registered for the `openclaw` runtime, OpenClaw checks every tool result of every agent on that runtime against its middleware limits before it calls any middleware, including results the pacer then leaves alone (OpenClaw 2026.10.3 and 2026.10.4, `src/agents/harness/tool-result-middleware.ts`). A result inside the limits passes unchanged. Past them:
+Registering tool-result middleware puts every tool result of every agent on the `openclaw` runtime through OpenClaw's middleware runner, including results the pacer then leaves alone. What the runner does to them depends on the version.
+
+**OpenClaw 2026.10.10 and 2026.11.1** (`dist/tool-result-middleware-*.mjs`, built from `src/agents/harness/tool-result-middleware.ts`) check no size. A result the pacer leaves alone, and the `details` of every result, reach the model as the tool produced them. The runner still changes two things:
+- Nested tool-result blocks (`toolResult` or `tool_result`, which older native runtimes emit) are flattened into text and image blocks, at most 200 of them, with text cut to 100,000 characters.
+- If a handler throws, or a result holds only nested blocks with nothing usable, the runner replaces the result with "Tool output unavailable due to post-processing error." (see [Failing open](#failing-open)).
+
+**OpenClaw 2026.10.8 and earlier** (2026.10.8 read from `dist/tool-result-middleware-*.mjs`) validated every result before any middleware ran, and cut or replaced what was past these limits:
 
 | Part | Limit | Past it |
 |---|---|---|
@@ -30,19 +36,15 @@ Registering tool-result middleware affects more than the agents in `agents`. Whi
 | `details` | 100,000 bytes of UTF-8 JSON, 1,000 keys, 20 levels | Replaced by `{ "truncated": true, "originalSizeBytes": n }` |
 | `details` values JSON can't hold | Functions, repeated objects such as cycles, bigints | Functions and repeats dropped, bigints turned into strings |
 
-A test hands the pacer's middleware to OpenClaw's own middleware runner from the SDK and checks the text-block and `details` size rows, the `details` limit at its exact byte boundary.
+The pacer's offload judges a `tool_call` result by its text, and reads the tool's own result from `details`. The pacer has no code for a cut `details`. On 2026.10.8 and earlier, a `tool_call` result whose `details` passed 100,000 bytes reached the pacer without the tool's own result, so it got the status line but wasn't offloaded; since 2026.10.10 it arrives whole.
 
-Paced agents' results pass the same check before the pacer sees them. A `tool_call` result whose `details` pass 100,000 bytes reaches the pacer without the tool's own result, so it gets the status line but isn't offloaded. The limit is in bytes, and under `tool_call` the page text is in `details` twice. So a `web_fetch` at its default 20,000 characters can cross it when the page is in a script that takes three bytes per character in UTF-8, such as Chinese or Japanese. A page in ASCII needs about 50,000 characters to cross it, which takes raising both `maxChars` and `tools.web.fetch.maxCharsCap`, whose defaults are 20,000 ([web fetch](https://docs.openclaw.ai/tools/web-fetch)).
+A test hands the pacer's middleware to OpenClaw's own middleware runner from the SDK. It checks that an unpaced agent's 150,000-character text block and 200,000-byte `details` pass unchanged, that the nested-block flattening still cuts to 100,000 characters, and that a throwing handler gets the notice. It fails if OpenClaw changes any of these again.
 
-The pacer can't limit this in 2026.10.3 or 2026.10.4:
-- Registration takes `runtimes` and a tool `matcher`, with no agent scope. The `openclaw` runtime applies the limits before it checks a handler's matcher (`src/plugins/registry-registrars-tools-hooks.ts`).
-- Registering only when `agents` is set isn't clean either. The manifest declares the middleware contract, and OpenClaw treats declared middleware that wasn't registered as missing: on each run it falls back to its plugin loader to look for it (`src/plugins/agent-tool-result-middleware-loader.ts`). What that costs isn't measured.
-
-So an enabled plugin with an empty `agents` list still applies the limits. To leave every agent's results as they are, disable the plugin.
+Registration takes `runtimes` and a tool `matcher`, with no agent scope. Registering only when `agents` is set isn't clean either. The manifest declares the middleware contract, and OpenClaw treats declared middleware that wasn't registered as missing: on each run it falls back to its plugin loader to look for it (2026.10.3 and 2026.10.4, `src/plugins/agent-tool-result-middleware-loader.ts`). What that costs isn't measured. So an enabled plugin with an empty `agents` list still sits in the path of every agent's results, and returns `undefined` for each.
 
 ## Failing open
 
-When middleware throws or returns malformed output, OpenClaw replaces the result with "Tool output unavailable due to post-processing error." So the plugin catches every error and returns `undefined`, which keeps the result as OpenClaw passed it in (see [Every agent's results](#every-agents-results)), and logs a warning. A failed save keeps the full result in context.
+When middleware throws, OpenClaw replaces the result with "Tool output unavailable due to post-processing error." (2026.10.10 and 2026.11.1, `dist/tool-result-middleware-*.mjs`). Up to 2026.10.8 it did the same for malformed output; 2026.10.10 no longer validates output, so a malformed result passes through as returned. So the plugin catches every error and returns `undefined`, which keeps the result as OpenClaw passed it in, and logs a warning. A failed save keeps the full result in context.
 
 ## Tool Search
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Every agent's tool results:** OpenClaw 2026.10.10 and 2026.11.1 no longer cut or replace a tool result past the middleware limits (text over 100,000 characters, image data, `details` size) when middleware is registered; 2026.10.8 and earlier did, for every agent on the `openclaw` runtime. Read in `dist/tool-result-middleware-*.mjs` of each package. Still applied: nested tool-result blocks are flattened with text cut to 100,000 characters, and a throwing handler's result is replaced by a notice. The pacer needed no code change; the docs and the guard test now describe the new behaviour. See [How it works](how-it-works.md#every-agents-results).
+
 ## 0.1.1
 
 - Ships compiled `dist/`: an install runs npm without scripts, so it can't build one. `openclaw.runtimeExtensions` points at `./dist/index.js`, which OpenClaw loads from a copy, a git install or a load path. CI checks `dist/` matches a fresh build.

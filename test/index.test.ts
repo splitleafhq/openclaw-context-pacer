@@ -102,6 +102,13 @@ test('a gathering result keeps its content and gains the status line as its own 
   assert.deepEqual(out.details, original.details);
 });
 
+test("a result through Tool Search's dispatch_action control is paced as the tool that ran", async () => {
+  const { host: h } = host();
+  const call = { id: 'openclaw:core:web_fetch', args: { url: 'https://example.com/guide' } };
+  const out = defined(await apply(h, event('dispatch_action', viaToolCall('web_fetch', fetchPayload()), call), 'researcher'));
+  assert.deepEqual(out.content.at(-1), { type: 'text', text: '[pacer] 1 gathering result so far.' });
+});
+
 test('a save that fails keeps the full result in context and logs why', async () => {
   const ws = await workspace();
   const notAFolder = join(ws, 'file');

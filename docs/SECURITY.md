@@ -20,5 +20,5 @@ The plugin sees untrusted web content and, with offload on, writes files where a
 ## What isn't
 
 - **Someone who can already write to the agent's workspace or the OpenClaw config.** They already control the agent, and nothing this plugin does changes that.
-- **OpenClaw's middleware limits on every agent's results.** While the plugin is enabled, OpenClaw cuts any agent's tool result past its limits before the pacer sees it. That's OpenClaw's behaviour, documented in [How it works](how-it-works.md#every-agents-results), not the pacer changing a result.
+- **OpenClaw's middleware limits on every agent's results.** On OpenClaw 2026.10.8 and earlier, while the plugin is enabled, OpenClaw cuts any agent's tool result past its limits before the pacer sees it; 2026.10.10 and later don't. That's OpenClaw's behaviour, documented in [How it works](how-it-works.md#every-agents-results), not the pacer changing a result.
 - **Prompt injection in fetched pages.** That's an OpenClaw and model concern. The plugin's job is to keep the label on, not to judge content.

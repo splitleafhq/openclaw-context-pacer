@@ -319,23 +319,28 @@ test("offload finds the agent workspace with OpenClaw's own resolver, from the f
   assert.deepEqual(warnings, []);
 });
 
-test("the documented middleware limits still match OpenClaw: an unpaced agent's oversized result is cut once the pacer's middleware is registered", async () => {
+test("the documented middleware behaviour still matches OpenClaw: an unpaced agent's oversized result passes uncut once the pacer's middleware is registered", async () => {
   const middleware = [createMiddleware(host().host)];
   const runner = (handlers: typeof middleware) =>
     createAgentToolResultMiddlewareRunner({ runtime: 'openclaw', agentId: 'someone-else', runId: 'r1' }, handlers);
   const call = (result: TextResult) => ({ toolCallId: 'call-1', toolName: 'exec', args: {}, result });
-  const small = { content: [{ type: 'text' as const, text: 'ok' }], details: { exitCode: 0 } };
   const large = { content: [{ type: 'text' as const, text: 'x'.repeat(150_000) }], details: { output: 'y'.repeat(200_000) } };
 
   assert.equal(await runner([]).applyToolResultMiddleware(call(large)), large);
-  assert.equal(await runner(middleware).applyToolResultMiddleware(call(small)), small);
-  const cut = await runner(middleware).applyToolResultMiddleware(call(large));
-  assert.deepEqual(texts(cut).map((text) => text.length), [100_000]);
-  assert.deepEqual(cut.details, { truncated: true, originalSizeBytes: 200_013 });
-  // `details` as JSON: 13 bytes of wrapper plus the string, so 99,987 characters make exactly 100,000 bytes.
-  const details = (chars: number) => ({ content: [{ type: 'text' as const, text: 'ok' }], details: { output: 'y'.repeat(chars) } });
-  assert.deepEqual((await runner(middleware).applyToolResultMiddleware(call(details(99_987)))).details, details(99_987).details);
-  assert.deepEqual((await runner(middleware).applyToolResultMiddleware(call(details(99_988)))).details, { truncated: true, originalSizeBytes: 100_001 });
+  const passed = await runner(middleware).applyToolResultMiddleware(call(large));
+  assert.deepEqual(texts(passed).map((text) => text.length), [150_000]);
+  assert.deepEqual(passed.details, large.details);
+
+  // The one cut left: nested tool-result blocks are flattened, and their text is cut to 100,000 characters.
+  const nested: TextResult = JSON.parse(JSON.stringify({ content: [{ type: 'toolResult', content: [{ type: 'text', text: 'x'.repeat(150_000) }] }] }));
+  assert.deepEqual(texts(await runner(middleware).applyToolResultMiddleware(call(nested))).map((text) => text.length), [100_000]);
+
+  // A throwing handler replaces the result with a notice.
+  const throwing = async () => {
+    throw new Error('boom');
+  };
+  const failed = await createAgentToolResultMiddlewareRunner({ runtime: 'openclaw', agentId: 'someone-else', runId: 'r1' }, [throwing]).applyToolResultMiddleware(call(large));
+  assert.deepEqual(texts(failed), ['Tool output unavailable due to post-processing error.']);
 });
 
 test('the conversation hooks are used only when the operator grants conversation access', () => {

@@ -76,6 +76,7 @@ interface RunState {
   approx?: boolean;
   budget?: number;
   savedBytes: number;
+  offloaded: number;
   /** Saved-file folder, named when the run first saves so a run past midnight keeps one folder. */
   folder?: string;
 }
@@ -144,6 +145,19 @@ function writePath(args: unknown): string | undefined {
   return undefined;
 }
 
+/** What the pacer did in one run. */
+export interface Outcome {
+  gathers: number;
+  offloaded: number;
+  notes: number;
+}
+
+/** The outcome line logged at `agent_end`, which OpenClaw sends once per attempt of a run. */
+export function outcomeLine(runId: string, agentId: string | undefined, o: Outcome): string {
+  const agent = agentId ? ` of agent "${agentId}"` : '';
+  return `run ${runId}${agent}, attempt ended: ${o.gathers} gathering result${o.gathers === 1 ? '' : 's'} paced, ${o.offloaded} saved to files, ${o.notes} note${o.notes === 1 ? '' : 's'} counted`;
+}
+
 export class Pacer {
   readonly config: PacerConfig;
   private readonly runs = new Map<string, RunState>();
@@ -163,7 +177,7 @@ export class Pacer {
       this.runs.delete(runId);
       this.runs.set(runId, s);
     } else {
-      s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0 };
+      s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0, offloaded: 0 };
       this.runs.set(runId, s);
       for (const idlest of this.runs.keys()) {
         if (this.runs.size <= this.config.maxTrackedRuns) {
@@ -257,8 +271,16 @@ export class Pacer {
     s.savedBytes = Math.max(0, s.savedBytes - bytes);
   }
 
-  end(runId: string): void {
+  /** Counts a result saved to a file in the run's outcome. */
+  recordOffload(runId: string): void {
+    this.state(runId).offloaded += 1;
+  }
+
+  /** Drops the run's counters and returns its outcome, or undefined for a run the pacer never tracked. */
+  end(runId: string): Outcome | undefined {
+    const s = this.runs.get(runId);
     this.runs.delete(runId);
+    return s && { gathers: s.gathers, offloaded: s.offloaded, notes: s.notes };
   }
 
   get trackedRuns(): number {
@@ -270,7 +292,7 @@ export function contextShare(s: Pick<RunState, 'promptTokens' | 'budget'>): numb
   return s.promptTokens && s.budget ? s.promptTokens / s.budget : undefined;
 }
 
-export function statusLine(s: Omit<RunState, 'savedBytes' | 'folder'>, config: PacerConfig): string {
+export function statusLine(s: Omit<RunState, 'savedBytes' | 'folder' | 'offloaded'>, config: PacerConfig): string {
   const share = contextShare(s);
   const tracking = config.notes.pathContains !== undefined;
   const parts = [`${s.gathers} gathering result${s.gathers === 1 ? '' : 's'} so far`];

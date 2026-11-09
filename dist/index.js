@@ -1,9 +1,9 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import { wrapExternalContent } from 'openclaw/plugin-sdk/security-runtime';
 import { offload, runFolder } from './offload.js';
-import { Pacer, appendStatus, resolveConfig } from './pacer.js';
+import { Pacer, appendStatus, outcomeLine, resolveConfig } from './pacer.js';
 import { offloadTarget } from './sandbox.js';
-import { isErrorResult, isRecord, resolveInner } from './tool-result.js';
+import { hasCallShape, isErrorResult, isRecord, resolveInner } from './tool-result.js';
 const PLUGIN_ID = 'context-pacer';
 /** Prompt tokens of one model call: fresh input plus cached reads and writes. */
 function promptTokens(usage) {
@@ -30,7 +30,7 @@ export function wrap(text, toolName) {
  * Handlers for the hooks that report a run's context budget and prompt size. Budget and usage come from OpenClaw's
  * own resolution for the run, so no model limits are hard-coded here.
  */
-export function usageHooks(pacer) {
+export function usageHooks(pacer, info) {
     return {
         modelCallStarted(event, ctx) {
             const runId = event?.runId ?? ctx?.runId;
@@ -60,8 +60,9 @@ export function usageHooks(pacer) {
         },
         agentEnd(event, ctx) {
             const runId = event?.runId ?? ctx?.runId;
-            if (runId) {
-                pacer.end(runId);
+            const outcome = runId ? pacer.end(runId) : undefined;
+            if (runId && outcome) {
+                info?.(outcomeLine(runId, ctx?.agentId, outcome));
             }
         },
     };
@@ -96,7 +97,8 @@ export function createSaveDir(config, workspaceDir, warn) {
  * notice instead.
  */
 export function createMiddleware(host) {
-    const { pacer, warn } = host;
+    const { pacer, warn, info } = host;
+    const unknownControls = new Set();
     return async (event, ctx) => {
         try {
             const runId = ctx.runId;
@@ -105,10 +107,18 @@ export function createMiddleware(host) {
                 return undefined;
             }
             const inner = resolveInner(event.toolName, event.args, event.result);
+            // A renamed call control hides every deferred tool from the pacer, with nothing else to show for it (#89).
+            if (!inner.wrapped && hasCallShape(event.args) && !unknownControls.has(inner.name)) {
+                unknownControls.add(inner.name);
+                warn(`"${inner.name}" was called with Tool Search's call shape ({ id, args }), but the pacer doesn't unwrap it: tools run through it are not paced`);
+            }
             const failed = event.isError === true || isErrorResult(event.result);
             const line = pacer.onToolResult(runId, inner.name, inner.args, failed);
             if (!line) {
                 return undefined;
+            }
+            if (pacer.gatherIndex(runId) === 1) {
+                info?.(`pacing run ${runId} of agent "${agentId}"`);
             }
             let result = event.result;
             const saveDir = pacer.config.offload.enabled && inner.result && !failed ? host.saveDir(agentId, event.cwd) : undefined;
@@ -126,6 +136,7 @@ export function createMiddleware(host) {
                         live: pacer.liveFolders(),
                     });
                     if (done) {
+                        pacer.recordOffload(runId);
                         result = { ...event.result, content: done.content };
                     }
                 }
@@ -145,7 +156,8 @@ export function createMiddleware(host) {
 export function registerPacer(api) {
     const pacer = new Pacer(resolveConfig(api.pluginConfig));
     const warn = (message) => api.logger?.warn?.(`[${PLUGIN_ID}] ${message}`);
-    const hooks = usageHooks(pacer);
+    const info = (message) => api.logger?.info?.(`[${PLUGIN_ID}] ${message}`);
+    const hooks = usageHooks(pacer, info);
     api.on('model_call_started', hooks.modelCallStarted);
     api.on('model_call_ended', hooks.modelCallEnded);
     // `llm_output` and `agent_end` also carry the conversation, so OpenClaw admits them for an installed plugin only
@@ -158,6 +170,7 @@ export function registerPacer(api) {
     api.registerAgentToolResultMiddleware(createMiddleware({
         pacer,
         warn,
+        info,
         saveDir: createSaveDir(() => api.runtime.config.current(), (config, agentId) => api.runtime.agent.resolveAgentWorkspaceDir(config, agentId), warn),
         wrap,
     }), { runtimes: ['openclaw'] });

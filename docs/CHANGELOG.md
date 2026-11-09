@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Its own log:** an info line when the pacer starts pacing a run, an outcome line at the end of each attempt (gathering results paced, saved to files, notes counted; with the conversation-access grant), and one warning per name when a result arrives in Tool Search's call shape under a control the pacer doesn't unwrap (#89). See [How it works](how-it-works.md#its-own-log).
+
 ## 0.1.2
 
 - **Tool Search's renamed call control:** OpenClaw renamed Tool Search's call control from `tool_call` to `dispatch_action` (2026.11.2 docs/tools/tool-search.md, "Upgrading"). The pacer matched only `tool_call`, so every result through `dispatch_action` was attributed to `dispatch_action`, matched no gathering tool, and got no status line, no notes nudge and no offload. The pacer now accepts both names.

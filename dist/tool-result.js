@@ -31,6 +31,10 @@ export function resolveInner(toolName, args, result) {
     const id = typeof call.id === 'string' ? call.id : '';
     return { name: id.slice(id.lastIndexOf(':') + 1) || toolName, args: innerArgs, wrapped: true };
 }
+/** True when `args` has Tool Search's call shape, `{ id, args }`, whatever the calling tool is named. */
+export function hasCallShape(args) {
+    return isRecord(args) && typeof args.id === 'string' && isRecord(args.args);
+}
 /** All text blocks joined, or undefined when the result holds anything else (an image, say). */
 export function textOf(result) {
     if (!Array.isArray(result.content)) {

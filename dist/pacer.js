@@ -80,6 +80,11 @@ function writePath(args) {
     }
     return undefined;
 }
+/** The outcome line logged at `agent_end`, which OpenClaw sends once per attempt of a run. */
+export function outcomeLine(runId, agentId, o) {
+    const agent = agentId ? ` of agent "${agentId}"` : '';
+    return `run ${runId}${agent}, attempt ended: ${o.gathers} gathering result${o.gathers === 1 ? '' : 's'} paced, ${o.offloaded} saved to files, ${o.notes} note${o.notes === 1 ? '' : 's'} counted`;
+}
 export class Pacer {
     config;
     runs = new Map();
@@ -97,7 +102,7 @@ export class Pacer {
             this.runs.set(runId, s);
         }
         else {
-            s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0 };
+            s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0, offloaded: 0 };
             this.runs.set(runId, s);
             for (const idlest of this.runs.keys()) {
                 if (this.runs.size <= this.config.maxTrackedRuns) {
@@ -183,8 +188,15 @@ export class Pacer {
         const s = this.state(runId);
         s.savedBytes = Math.max(0, s.savedBytes - bytes);
     }
+    /** Counts a result saved to a file in the run's outcome. */
+    recordOffload(runId) {
+        this.state(runId).offloaded += 1;
+    }
+    /** Drops the run's counters and returns its outcome, or undefined for a run the pacer never tracked. */
     end(runId) {
+        const s = this.runs.get(runId);
         this.runs.delete(runId);
+        return s && { gathers: s.gathers, offloaded: s.offloaded, notes: s.notes };
     }
     get trackedRuns() {
         return this.runs.size;

@@ -68,11 +68,12 @@ function register(
   const middleware: Parameters<PluginHost['registerAgentToolResultMiddleware']>[0][] = [];
   const middlewareOptions: Parameters<PluginHost['registerAgentToolResultMiddleware']>[1][] = [];
   const warnings: string[] = [];
+  const infos: string[] = [];
   const runtime = { agent: { resolveAgentWorkspaceDir: resolveWorkspace }, config: { current } };
   const api: PluginHost = {
     config,
     pluginConfig,
-    logger: { warn: (message) => warnings.push(message) },
+    logger: { warn: (message) => warnings.push(message), info: (message) => infos.push(message) },
     on: (hookName: string, handler: unknown) => {
       hooks.set(hookName, handler);
     },
@@ -83,7 +84,7 @@ function register(
     runtime,
   };
   registerPacer(api);
-  return { hooks, middleware, middlewareOptions, warnings };
+  return { hooks, middleware, middlewareOptions, warnings, infos };
 }
 
 test('a result for an agent that is not paced is left unchanged', async () => {
@@ -107,6 +108,33 @@ test("a result through Tool Search's dispatch_action control is paced as the too
   const call = { id: 'openclaw:core:web_fetch', args: { url: 'https://example.com/guide' } };
   const out = defined(await apply(h, event('dispatch_action', viaToolCall('web_fetch', fetchPayload()), call), 'researcher'));
   assert.deepEqual(out.content.at(-1), { type: 'text', text: '[pacer] 1 gathering result so far.' });
+});
+
+test('a call control the pacer does not know is reported once, so a rename cannot leave it silently inactive', async () => {
+  const { host: h, warnings } = host();
+  const call = { id: 'openclaw:core:web_fetch', args: { url: 'https://example.com/guide' } };
+  const middleware = createMiddleware(h);
+  for (let i = 0; i < 2; i++) {
+    assert.equal(await middleware(event('run_deferred', viaToolCall('web_fetch', fetchPayload()), call), ctx('researcher')), undefined);
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(defined(warnings[0]), /^"run_deferred" was called with Tool Search's call shape .*not paced$/);
+});
+
+test('the gateway log shows each run the pacer paces, and its outcome when the run ends', async () => {
+  const granted = register({ agents: ['researcher'] }, { plugins: { entries: { 'context-pacer': { hooks: { allowConversationAccess: true } } } } });
+  const middleware = defined(granted.middleware[0]);
+  const runner = createAgentToolResultMiddlewareRunner({ runtime: 'openclaw', agentId: 'researcher', runId: 'r1' }, [middleware]);
+  for (let i = 0; i < 2; i++) {
+    await runner.applyToolResultMiddleware(event('web_search', direct({ results: [] })));
+  }
+  const agentEnd: unknown = granted.hooks.get('agent_end');
+  assert.ok(typeof agentEnd === 'function');
+  agentEnd({ runId: 'r1' }, { agentId: 'researcher' });
+  assert.deepEqual(granted.infos, [
+    '[context-pacer] pacing run r1 of agent "researcher"',
+    '[context-pacer] run r1 of agent "researcher", attempt ended: 2 gathering results paced, 0 saved to files, 0 notes counted',
+  ]);
 });
 
 test('a save that fails keeps the full result in context and logs why', async () => {

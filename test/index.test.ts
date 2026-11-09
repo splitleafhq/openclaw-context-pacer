@@ -104,10 +104,11 @@ test('a gathering result keeps its content and gains the status line as its own 
 });
 
 test("a result through Tool Search's dispatch_action control is paced as the tool that ran", async () => {
-  const { host: h } = host();
+  const { host: h, warnings } = host();
   const call = { id: 'openclaw:core:web_fetch', args: { url: 'https://example.com/guide' } };
   const out = defined(await apply(h, event('dispatch_action', viaToolCall('web_fetch', fetchPayload()), call), 'researcher'));
   assert.deepEqual(out.content.at(-1), { type: 'text', text: '[pacer] 1 gathering result so far.' });
+  assert.deepEqual(warnings, []);
 });
 
 test('a call control the pacer does not know is reported once, so a rename cannot leave it silently inactive', async () => {
@@ -118,7 +119,7 @@ test('a call control the pacer does not know is reported once, so a rename canno
     assert.equal(await middleware(event('run_deferred', viaToolCall('web_fetch', fetchPayload()), call), ctx('researcher')), undefined);
   }
   assert.equal(warnings.length, 1);
-  assert.match(defined(warnings[0]), /^"run_deferred" was called with Tool Search's call shape .*not paced$/);
+  assert.match(defined(warnings[0]), /^"run_deferred" was called like a Tool Search call control .*not paced$/);
 });
 
 test('the gateway log shows each run the pacer paces, and its outcome when the run ends', async () => {
@@ -135,6 +136,17 @@ test('the gateway log shows each run the pacer paces, and its outcome when the r
     '[context-pacer] pacing run r1 of agent "researcher"',
     '[context-pacer] run r1 of agent "researcher", attempt ended: 2 gathering results paced, 0 saved to files, 0 notes counted',
   ]);
+});
+
+test("an attempt's outcome line counts the results it saved to files and the notes written", async () => {
+  const ws = await workspace();
+  const infos: string[] = [];
+  const { host: h } = host({ config: { ...offloadOn, notes: { pathContains: 'notes/' } }, saveDir: () => ws, info: (m) => infos.push(m) });
+  const middleware = createMiddleware(h);
+  await middleware(event('dispatch_action', viaToolCall('web_fetch', fetchPayload()), { id: 'web_fetch', args: {} }), ctx('researcher'));
+  await middleware(event('write', direct({ ok: true }), { path: 'notes/topic.md' }), ctx('researcher'));
+  usageHooks(h.pacer, (m) => infos.push(m)).agentEnd({}, { runId: 'run-1', agentId: 'researcher' });
+  assert.equal(infos.at(-1), 'run run-1 of agent "researcher", attempt ended: 1 gathering result paced, 1 saved to files, 1 note counted');
 });
 
 test('a save that fails keeps the full result in context and logs why', async () => {

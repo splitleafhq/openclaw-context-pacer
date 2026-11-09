@@ -50,9 +50,9 @@ When middleware throws, OpenClaw replaces the result with "Tool output unavailab
 
 The pacer writes what it did to the gateway log, so a pacer that runs but no longer paces shows there:
 
-- `[context-pacer] pacing run <run> of agent "<agent>"` (info) on a run's first gathering result.
-- `[context-pacer] run <run> of agent "<agent>", attempt ended: N gathering results paced, N saved to files, N notes counted` (info) at `agent_end`, which OpenClaw sends at the end of each attempt. Only with the conversation-access grant, since OpenClaw gates `agent_end` behind it (see [Configuration](configuration.md#reported-usage)).
-- `[context-pacer] "<name>" was called with Tool Search's call shape ({ id, args }), but the pacer doesn't unwrap it: tools run through it are not paced` (warning), once per name, for a result whose arguments are a Tool Search call under a control name the pacer doesn't know. A renamed call control left the pacer matching nothing, with nothing logged (#89).
+- `[context-pacer] pacing run <run> of agent "<agent>"` (info) on a run's first gathering result: once per run without the conversation-access grant, once per attempt with it (the counters restart at `agent_end`), and again if `maxTrackedRuns` dropped the run's counters.
+- `[context-pacer] run <run> of agent "<agent>", attempt ended: N gathering results paced, N saved to files, N notes counted` (info) at `agent_end`, which OpenClaw sends at the end of each attempt, for every attempt of a paced agent, so `0 gathering results paced` shows an attempt that gathered nothing the pacer recognised. Only with the conversation-access grant: OpenClaw gates `agent_end` behind it for installed plugins (2026.11.2, docs/plugins/hooks.md, "Permissions and scope"; see [Configuration](configuration.md#reported-usage)).
+- `[context-pacer] "<name>" was called with Tool Search's call shape ({ id, args }), but the pacer doesn't unwrap it: tools run through it are not paced` (warning), once per name, for a result whose arguments look like a Tool Search call under a control name the pacer doesn't know. A tool of your own whose arguments are `{ id, args }` also gets it, once. A renamed call control left the pacer matching nothing, with nothing logged (#89).
 
 A paced agent whose runs gather but log no `pacing run` line is the drift to look for.
 

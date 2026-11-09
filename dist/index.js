@@ -110,7 +110,7 @@ export function createMiddleware(host) {
             // A renamed call control hides every deferred tool from the pacer, with nothing else to show for it (#89).
             if (!inner.wrapped && hasCallShape(event.args) && !unknownControls.has(inner.name)) {
                 unknownControls.add(inner.name);
-                warn(`"${inner.name}" was called with Tool Search's call shape ({ id, args }), but the pacer doesn't unwrap it: tools run through it are not paced`);
+                warn(`"${inner.name}" was called like a Tool Search call control ({ id, args }), but the pacer doesn't unwrap it: if it is one, tools run through it are not paced`);
             }
             const failed = event.isError === true || isErrorResult(event.result);
             const line = pacer.onToolResult(runId, inner.name, inner.args, failed);
@@ -156,7 +156,15 @@ export function createMiddleware(host) {
 export function registerPacer(api) {
     const pacer = new Pacer(resolveConfig(api.pluginConfig));
     const warn = (message) => api.logger?.warn?.(`[${PLUGIN_ID}] ${message}`);
-    const info = (message) => api.logger?.info?.(`[${PLUGIN_ID}] ${message}`);
+    // Logging must never cost a result its status line or throw out of a hook.
+    const info = (message) => {
+        try {
+            api.logger?.info?.(`[${PLUGIN_ID}] ${message}`);
+        }
+        catch {
+            // The log line is lost; pacing goes on.
+        }
+    };
     const hooks = usageHooks(pacer, info);
     api.on('model_call_started', hooks.modelCallStarted);
     api.on('model_call_ended', hooks.modelCallEnded);

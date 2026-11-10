@@ -46,6 +46,16 @@ Registration takes `runtimes` and a tool `matcher`, with no agent scope. Registe
 
 When middleware throws, OpenClaw replaces the result with "Tool output unavailable due to post-processing error." (2026.10.10 and 2026.11.1, `dist/tool-result-middleware-*.mjs`). Up to 2026.10.8 it did the same for malformed output; 2026.10.10 no longer validates output, so a malformed result passes through as returned. So the plugin catches every error and returns `undefined`, which keeps the result as OpenClaw passed it in, and logs a warning. A failed save keeps the full result in context.
 
+## Its own log
+
+The pacer writes what it did to the gateway log, so a pacer that runs but no longer paces shows there:
+
+- `[context-pacer] pacing run <run> of agent "<agent>"` (info) on a run's first gathering result: once per run without the conversation-access grant, once per attempt with it (the counters restart at `agent_end`), and again if `maxTrackedRuns` dropped the run's counters.
+- `[context-pacer] run <run> of agent "<agent>", attempt ended: N gathering results paced, N saved to files, N notes counted` (info) at `agent_end`, for each attempt OpenClaw finalizes. OpenClaw 2026.11.2 sends none for a settled-tool finalization, a detached-persistence run or a `before_agent_finalize` revision, and those attempts' counts carry into the next line (`dist/builtin-openclaw-*.mjs`, the embedded runner's `agent_end` dispatch). It fires for each finalized attempt of a paced agent, so `0 gathering results paced` shows an attempt that gathered nothing the pacer recognised. Only with the conversation-access grant: OpenClaw gates `agent_end` behind it for installed plugins (2026.11.2, docs/plugins/hooks.md, "Permissions and scope"; see [Configuration](configuration.md#reported-usage)).
+- `[context-pacer] "<name>" was called with Tool Search's call shape ({ id, args }), but the pacer doesn't unwrap it: tools run through it are not paced` (warning), once per name, for a result whose arguments look like a Tool Search call under a control name the pacer doesn't know. A tool of your own whose arguments are `{ id, args }` also gets it, once. A control reached only by flattened calls (Tool Search repairs those from local models, 2026.11.2 docs/tools/tool-search.md) doesn't trigger it; one well-formed call does. A renamed call control left the pacer matching nothing, with nothing logged (#89).
+
+A paced agent whose runs gather but log no `pacing run` line is the drift to look for.
+
 ## Tool Search
 
 When `tools.toolSearch` is unset, OpenClaw turns Tool Search on. Deferred tools such as `web_search` and `web_fetch` then run through its call control, and middleware sees the control's name as `toolName`. The control is `dispatch_action` in OpenClaw 2026.11.2 and was `tool_call` before (docs/tools/tool-search.md, "Upgrading"); the plugin accepts both, with the same arguments and result shape. The plugin reads the real tool from the result's `details.tool.name`, or from the catalog id in the call's arguments when the call failed.

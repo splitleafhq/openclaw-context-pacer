@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - **Its own log:** an info line when the pacer starts pacing a run, an outcome line at the end of each attempt (gathering results paced, saved to files, notes counted; with the conversation-access grant), and one warning per name when a result arrives in Tool Search's call shape under a control the pacer doesn't unwrap (#89). See [How it works](how-it-works.md#its-own-log).
 

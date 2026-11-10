@@ -208,15 +208,16 @@ export function createMiddleware(host: MiddlewareHost): Middleware {
 /** Registers the pacer's hooks and middleware with the host. */
 export function registerPacer(api: PluginHost): void {
   const pacer = new Pacer(resolveConfig(api.pluginConfig));
-  const warn = (message: string) => api.logger?.warn?.(`[${PLUGIN_ID}] ${message}`);
   // Logging must never cost a result its status line or throw out of a hook.
-  const info = (message: string) => {
+  const log = (level: 'warn' | 'info') => (message: string) => {
     try {
-      api.logger?.info?.(`[${PLUGIN_ID}] ${message}`);
+      api.logger?.[level]?.(`[${PLUGIN_ID}] ${message}`);
     } catch {
       // The log line is lost; pacing goes on.
     }
   };
+  const warn = log('warn');
+  const info = log('info');
   const hooks = usageHooks(pacer, info);
   api.on('model_call_started', hooks.modelCallStarted);
   api.on('model_call_ended', hooks.modelCallEnded);

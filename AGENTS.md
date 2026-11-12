@@ -17,5 +17,5 @@ Rules for working in this repo.
 13. Keep runtime dependencies at zero; import only `node:` built-ins and `openclaw/plugin-sdk/*`.
 14. A comment states a constraint the code can't show, never what the next line does.
 15. Write terse, factual prose.
-16. Commit and open pull requests on the user's behalf; pushing, merging, tagging and releasing each need their own approval.
+16. Commit, push and open pull requests on the user's behalf; merging, tagging and releasing each need their own approval.
 17. Keep agent-session links and session trailers out of commit messages, issues and pull request bodies.

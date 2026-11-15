@@ -54,7 +54,7 @@ Not seen in this check: a change to `agents.*` settings reaching the plugin mid-
 With 0.1.3, offload on and `hooks.allowConversationAccess` granted, three research runs:
 - The outcome line logged at the end of every attempt, including attempts that ended in a context overflow.
 - Every status line during an attempt still said "(approx)". Against the prompt size each model call reported in the transcript, the estimate read a median of 0.64, 0.80 and 0.75 of the real size over the later two thirds of each run.
-- At the default `wrapUpContextFraction` of 0.6, the nudge came at 81% and 84% of the real budget in two runs. In the third, the run overflowed and compacted before the nudge.
+- At the default `wrapUpContextFraction` of 0.6, the nudge came at 81% and 84% of the real budget in the two runs with medians 0.80 and 0.75, read from the reported size of the model call just before the nudge. In the run with median 0.64, the run overflowed and compacted before the nudge.
 - Without the grant, two earlier runs on 2026.11.3 showed the same estimate running low, and no outcome line, because `agent_end` isn't registered without the grant.
 
 Unverified: whether a lower `wrapUpContextFraction` keeps answers as complete.

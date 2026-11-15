@@ -90,9 +90,9 @@ export function usageHooks(pacer: Pacer, info?: (message: string) => void) {
         pacer.recordUsage(runId, event?.contextTokenBudget ?? ctx?.contextTokenBudget);
       }
     },
-    // The size used during an attempt: OpenClaw reports usage only at an attempt's end (`llm_output`). Request bytes / 4
-    // can run low as well as high, depending on the tokenizer and the content (0.64-0.80 of real on one local model,
-    // OpenClaw 2026.11.3), so the wrap-up fraction may need tuning; see docs/configuration.md.
+    // The size used during an attempt: usage arrives only at an attempt's end (`llm_output`, OpenClaw 2026.10.7,
+    // `completeEmbeddedAttemptResult`). Request bytes / 4 can run low as well as high, depending on the tokenizer and
+    // the content, so the wrap-up fraction may need tuning; see docs/configuration.md.
     modelCallEnded(event: Ctx & { requestPayloadBytes?: number }, ctx: Ctx): void {
       const runId = event?.runId ?? ctx?.runId;
       const bytes = event?.requestPayloadBytes;

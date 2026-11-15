@@ -52,7 +52,7 @@ To turn it off, run `openclaw plugins disable context-pacer` and restart. Saved 
 - **Never blocks:** it doesn't veto, cap or rewrite tool calls.
 - **Fails open:** any error leaves the result as it was and logs a warning. If a save fails, the full result stays in context.
 - **Agnostic:** context share comes from the budget OpenClaw resolves for the run, so no model name or window size is hard-coded.
-- **No conversation access by default:** it reads only call metadata, and estimates prompt size from the request's size. That estimate can run low, so check it and tune `wrapUpContextFraction`. Granting `hooks.allowConversationAccess` adds the outcome line and the reported size at each attempt's end, not during an attempt (see [Configuration](docs/configuration.md#reported-usage)).
+- **No conversation access by default:** it reads only call metadata, and estimates prompt size from the request's size. That estimate can run low, so check it and tune `wrapUpContextFraction`. Granting `hooks.allowConversationAccess` adds the outcome line at each attempt's end; usage is reported only then, so the share stays "(approx)" during an attempt (see [Configuration](docs/configuration.md#reported-usage)).
 - **Keeps the untrusted-content label:** excerpts and saved files of web content carry OpenClaw's warning and markers.
 - **Doesn't hide loops:** OpenClaw's loop detection records each outcome before this plugin runs.
 

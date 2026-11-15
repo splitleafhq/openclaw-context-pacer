@@ -29,7 +29,7 @@
 ## Checked on a live gateway (OpenClaw 2026.10.4)
 
 On 2026-10-18, with the plugin at commit 13a7696 and the agent sandboxed with `workspaceAccess: "none"`:
-- Three research runs. Offload saved 12, 16 and 7 tool results into the sandbox workspace's `.context-pacer/` folder: three run folders holding 35 saved results. Each folder also gets a marker, and the build at that commit wrote one `.gitignore` for the whole save folder, so 39 files by design.
+- Three runs. Offload saved 12, 16 and 7 tool results into the sandbox workspace's `.context-pacer/` folder: three run folders holding 35 saved results. Each folder also gets a marker, and the build at that commit wrote one `.gitignore` for the whole save folder, so 39 files by design.
 - The agent read them back 7, 12 and 4 times.
 - The gateway log had no "offload skipped" line.
 - Peak prompts were 82.9K, 88.1K and 34.7K tokens.
@@ -51,7 +51,7 @@ Not seen in this check: a change to `agents.*` settings reaching the plugin mid-
 
 ## Checked on a live gateway (OpenClaw 2026.11.3)
 
-With 0.1.3, offload on and `hooks.allowConversationAccess` granted, three research runs:
+With 0.1.3, offload on and `hooks.allowConversationAccess` granted, three runs:
 - The outcome line logged at the end of every attempt, including attempts that ended in a context overflow.
 - Every status line during an attempt still said "(approx)". Against the prompt size each model call reported in the transcript, the estimate read a median of 0.64, 0.80 and 0.75 of the real size over the later two thirds of each run.
 - At the default `wrapUpContextFraction` of 0.6, the nudge came at 81% and 84% of the real budget in the two runs with medians 0.80 and 0.75, read from the reported size of the model call just before the nudge. In the run with median 0.64, the run overflowed and compacted before the nudge.

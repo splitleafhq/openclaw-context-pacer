@@ -42,9 +42,11 @@ openclaw config set plugins.entries.context-pacer.config '<json>' --strict-json
 
 ## Reported usage
 
-By default the pacer estimates the prompt's size from each model request (bytes / 4) and marks the share "(approx)". It overestimates, so the wrap-up nudge comes early rather than late.
+During a run the pacer estimates the prompt's size from each model request (bytes / 4) and marks the share "(approx)". The estimate can run low: on one local model it read 0.64 to 0.80 of the real prompt size, so at the default `wrapUpContextFraction` of 0.6 the nudge came at 81 to 84% of the real budget (three runs on OpenClaw 2026.11.3). Bytes per token depends on the model's tokenizer and on the content, so check the "(approx)" share against the reported usage in your own transcripts, and lower `wrapUpContextFraction` if it runs low.
 
-For exact token counts, grant the plugin conversation access:
+The grant below doesn't change that. OpenClaw reports usage in `llm_output`, which it sends only when an attempt ends, and `model_call_ended` carries no token counts ([prompt and session hooks](https://docs.openclaw.ai/plugins/hooks/prompt-and-session), 2026.11.3). So the share stays "(approx)" for the rest of an attempt. What the grant adds is the outcome line at the end of each attempt and the reported size for the next status line after an attempt ends.
+
+To grant the plugin conversation access:
 
 ```sh
 openclaw config set plugins.entries.context-pacer.hooks.allowConversationAccess true --strict-json

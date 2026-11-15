@@ -38,8 +38,9 @@ export function usageHooks(pacer, info) {
                 pacer.recordUsage(runId, event?.contextTokenBudget ?? ctx?.contextTokenBudget);
             }
         },
-        // Fallback when usage arrives late or not at all: request bytes / 4 overestimates tokens (it includes the system
-        // prompt and tool schemas), so the wrap-up nudge comes early rather than late.
+        // The size used during an attempt: usage arrives only at an attempt's end (`llm_output`, OpenClaw 2026.10.7,
+        // `completeEmbeddedAttemptResult`). Request bytes / 4 can run low as well as high, depending on the tokenizer and
+        // the content, so the wrap-up fraction may need tuning; see docs/configuration.md.
         modelCallEnded(event, ctx) {
             const runId = event?.runId ?? ctx?.runId;
             const bytes = event?.requestPayloadBytes;

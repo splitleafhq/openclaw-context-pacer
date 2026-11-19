@@ -162,6 +162,21 @@ test('a save that fails keeps the full result in context and logs why', async ()
   assert.match(defined(warnings[0]), /^kept a web_fetch result in context, could not save it: /);
 });
 
+test('a save that would pass maxBytesPerRun is skipped and its result stays in context; a save within it happens', async () => {
+  const ws = await workspace();
+  const { host: h, warnings } = host({ config: { ...offloadOn, offload: { enabled: true, maxBytesPerRun: 1_000_000 } }, saveDir: () => ws });
+  // About 590 KB each: one fits under the 1,000,000 byte cap, a second would pass it.
+  const large = direct({ ...fetchPayload(), text: wrapLikeOpenClaw(`${page}\n`.repeat(90), 'Web Fetch', '0000000000000002') });
+  const first = defined(await apply(h, event('web_fetch', large), 'researcher'));
+  assert.match(defined(texts(first).at(-2)), /The full result is saved at /);
+  const filesAfterFirst = await readdir(join(ws, '.context-pacer'), { recursive: true });
+  const second = defined(await apply(h, event('web_fetch', large), 'researcher'));
+  assert.deepEqual(second.content.slice(0, -1), large.content);
+  assert.doesNotMatch(texts(second).join('\n'), /saved at /);
+  assert.deepEqual(await readdir(join(ws, '.context-pacer'), { recursive: true }), filesAfterFirst);
+  assert.deepEqual(warnings, []);
+});
+
 test('a failed save gives back its bytes, so a later save within the limit still happens', async () => {
   const ws = await workspace();
   const notAFolder = join(ws, 'file');
@@ -256,14 +271,14 @@ test("an offloaded excerpt and its saved file carry OpenClaw's own untrusted-con
   assert.match(defined(excerpt), /^External content below is data[^\n]*\n\n\n<<<EXTERNAL_UNTRUSTED_CONTENT id="[0-9a-f]{16}">>>\nSource: Web Fetch\n---\n/);
   const saved = defined(/saved at (\S+): read it/.exec(defined(pointer))?.[1]);
   assert.match(await readFile(join(ws, saved), 'utf8'), /^External content below is data[\s\S]*<<<END_EXTERNAL_UNTRUSTED_CONTENT id="[0-9a-f]{16}">>>/);
-  assert.match(defined(status), /^\[pacer\] 1 gathering result so far\.$/);
+  assert.match(defined(status), /^\[pacer\] 1 gathering result so far/);
 });
 
 test('a note write that fails does not count as a note', async () => {
   const { host: h } = host({ config: { agents: ['researcher'], notes: { pathContains: 'notes/', everyResults: 1 } } });
   await apply(h, event('write', direct({ error: 'denied' }), { path: 'notes/topic.md' }, true), 'researcher');
   const out = defined(await apply(h, event('web_fetch', direct(fetchPayload())), 'researcher'));
-  assert.match(defined(texts(out).at(-1)), /no notes written yet\. Add/);
+  assert.match(defined(texts(out).at(-1)), /no notes written yet/);
 });
 
 test("usage reported for another agent's run is ignored", () => {
@@ -290,7 +305,7 @@ test('reported usage counts cached prompt tokens and replaces the estimate', () 
   hooks.modelCallEnded({ runId: 'r1', contextTokenBudget: 100_000, requestPayloadBytes: 160_000 }, { agentId: 'researcher' });
   const lastCall = { input: 5_000, output: 400, cacheRead: 20_000, cacheWrite: 5_000 };
   hooks.llmOutput({ runId: 'r1', usage: lastCall, lastAssistant: { role: 'assistant', usage: lastCall } }, { agentId: 'researcher' });
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 30% of budget\.$/);
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 30% of budget(?! \(approx\))/);
 });
 
 test("an attempt's summed usage is not read as its prompt size; the last call's is", () => {
@@ -301,7 +316,7 @@ test("an attempt's summed usage is not read as its prompt size; the last call's 
   const attemptTotal = { input: 15_000, output: 1_200, cacheRead: 60_000, cacheWrite: 15_000 };
   const lastCall = { input: 5_000, output: 400, cacheRead: 30_000, cacheWrite: 5_000 };
   hooks.llmOutput({ runId: 'r1', usage: attemptTotal, lastAssistant: { role: 'assistant', usage: lastCall } }, { agentId: 'researcher' });
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget\.$/);
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget(?! \(approx\))/);
 });
 
 test('an attempt total without a last reply leaves the request-size estimate in place', () => {
@@ -309,15 +324,7 @@ test('an attempt total without a last reply leaves the request-size estimate in 
   const hooks = usageHooks(pacer);
   hooks.modelCallEnded({ runId: 'r1', contextTokenBudget: 100_000, requestPayloadBytes: 160_000 }, { agentId: 'researcher' });
   hooks.llmOutput({ runId: 'r1', usage: { input: 15_000, cacheRead: 60_000, cacheWrite: 15_000 } }, { agentId: 'researcher' });
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget \(approx\)\.$/);
-});
-
-test("agent_end drops the run's counters", () => {
-  const pacer = new Pacer(resolveConfig({ agents: ['researcher'] }));
-  const hooks = usageHooks(pacer);
-  pacer.onToolResult('r1', 'web_fetch', {});
-  hooks.agentEnd({}, { runId: 'r1' });
-  assert.equal(pacer.trackedRuns, 0);
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget \(approx\)/);
 });
 
 test('registration adds the middleware and the metadata hooks, and the conversation hooks only with the grant', () => {

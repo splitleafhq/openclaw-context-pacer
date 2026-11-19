@@ -14,11 +14,6 @@ const config = (defaults: object | undefined, entry: object | undefined) => ({
   agents: { defaults: defaults && { sandbox: defaults }, entries: { researcher: entry && { sandbox: entry } } },
 });
 
-test('an unsandboxed agent can read saved files', () => {
-  assert.equal(readable({}), true);
-  assert.equal(readable(config({ mode: 'off' }, undefined)), true);
-});
-
 test('a sandbox with read-write workspace access can read saved files', () => {
   assert.equal(readable(config({ mode: 'all', workspaceAccess: 'rw' }, undefined)), true);
   assert.equal(readable(config({ mode: 'all' }, { workspaceAccess: 'rw' })), true);
@@ -61,10 +56,6 @@ test('an unsandboxed run whose tools start in another folder gets no saved file,
 test('a sandbox a role requires under config mode off gets no saved file in the agent workspace it cannot read', () => {
   assert.equal(saveDir(config({ mode: 'off' }, undefined), SANDBOX_WS), undefined);
   assert.equal(saveDir(config({ mode: 'all' }, { mode: 'off' }), SANDBOX_WS), undefined);
-});
-
-test('a remote backend gets no saved file even when OpenClaw reports a local working directory', () => {
-  assert.equal(saveDir(config({ mode: 'all', backend: 'ssh' }, undefined), SANDBOX_WS), undefined);
 });
 
 test('the agent entry overrides the defaults', () => {

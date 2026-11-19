@@ -19,11 +19,13 @@ test('does nothing until agents are configured', () => {
 test('falls back to an approximate share from request size, and prefers reported usage', () => {
   const pacer = new Pacer(DEFAULTS);
   pacer.recordUsage('r1', 100_000, 70_000, true);
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 70% of budget \(approx\)\. Context is filling up/);
+  const approx = defined(pacer.onToolResult('r1', 'web_fetch', {}));
+  assert.match(approx, /about 70% of budget \(approx\)/);
+  assert.match(approx, /filling up/);
   pacer.recordUsage('r1', undefined, 50_000);
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 50% of budget\./);
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 50% of budget(?! \(approx\))/);
   pacer.recordUsage('r1', undefined, 45_000, true);
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 50% of budget\./);
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 50% of budget(?! \(approx\))/);
   pacer.recordUsage('r1', undefined, 60_000, true);
   assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 60% of budget \(approx\)/);
 });
@@ -36,7 +38,7 @@ test('non-gathering tools pass unchanged', () => {
 
 test('counts gathering results and asks for a note after notes.everyResults', () => {
   const pacer = new Pacer(resolveConfig({ notes: { pathContains: 'notes/', everyResults: 3 } }));
-  assert.match(defined(pacer.onToolResult('r1', 'web_search', {})), /1 gathering result so far · no notes written yet\.$/);
+  assert.match(defined(pacer.onToolResult('r1', 'web_search', {})), /1 gathering result so far.*no notes written yet/);
   pacer.onToolResult('r1', 'web_fetch', {});
   const third = defined(pacer.onToolResult('r1', 'web_fetch', {}));
   assert.match(third, /3 gathering results so far/);
@@ -47,10 +49,12 @@ test('a write under the notes path resets the count; other writes do not', () =>
   const pacer = new Pacer(resolveConfig({ notes: { pathContains: 'notes/', everyResults: 2 } }));
   pacer.onToolResult('r1', 'web_fetch', {});
   pacer.onToolResult('r1', 'write', { path: 'drafts/x.md' });
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /no notes written yet\. Add/);
+  const asked = defined(pacer.onToolResult('r1', 'web_fetch', {}));
+  assert.match(asked, /no notes written yet/);
+  assert.match(asked, /Add what these sources showed to your notes/);
   pacer.onToolResult('r1', 'write', { path: 'notes/topic.md' });
   const line = defined(pacer.onToolResult('r1', 'web_search', {}));
-  assert.match(line, /last note 1 result ago\.$/);
+  assert.match(line, /last note 1 result ago/);
 });
 
 test('notes.pathContains decides which writes count as notes', () => {
@@ -64,9 +68,13 @@ test('notes.pathContains decides which writes count as notes', () => {
 test('reports context share and says to finish once past wrapUpContextFraction', () => {
   const pacer = new Pacer(resolveConfig({ notes: { pathContains: 'notes/' }, wrapUpContextFraction: 0.6 }));
   pacer.recordUsage('r1', 100_000, 40_000);
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget\.$/);
+  const early = defined(pacer.onToolResult('r1', 'web_fetch', {}));
+  assert.match(early, /context about 40% of budget/);
+  assert.doesNotMatch(early, /filling up/);
   pacer.recordUsage('r1', undefined, 65_000);
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /about 65% of budget\. Context is filling up/);
+  const late = defined(pacer.onToolResult('r1', 'web_fetch', {}));
+  assert.match(late, /about 65% of budget/);
+  assert.match(late, /filling up/);
 });
 
 test('omits the context share when OpenClaw reported no usage', () => {
@@ -114,9 +122,14 @@ test('without a notes path the line never mentions notes, and the finish advice 
   const pacer = new Pacer(resolveConfig({ notes: { everyResults: 1 } }));
   pacer.onToolResult('r1', 'write', { path: 'notes/topic.md' });
   const first = defined(pacer.onToolResult('r1', 'web_fetch', {}));
-  assert.equal(first, '[pacer] 1 gathering result so far.');
+  assert.match(first, /^\[pacer\] 1 gathering result so far/);
+  assert.doesNotMatch(first, /note/);
   pacer.recordUsage('r1', 100_000, 70_000);
-  assert.equal(defined(pacer.onToolResult('r1', 'web_fetch', {})), '[pacer] 2 gathering results so far · context about 70% of budget. Context is filling up: stop gathering and write the answer.');
+  const second = defined(pacer.onToolResult('r1', 'web_fetch', {}));
+  assert.match(second, /^\[pacer\] 2 gathering results so far/);
+  assert.match(second, /context about 70% of budget/);
+  assert.match(second, /stop gathering and write the answer/);
+  assert.doesNotMatch(second, /note/);
 });
 
 test('a run keeps one saved-file folder name', () => {

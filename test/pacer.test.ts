@@ -38,7 +38,10 @@ test('non-gathering tools pass unchanged', () => {
 
 test('counts gathering results and asks for a note after notes.everyResults', () => {
   const pacer = new Pacer(resolveConfig({ notes: { pathContains: 'notes/', everyResults: 3 } }));
-  assert.match(defined(pacer.onToolResult('r1', 'web_search', {})), /1 gathering result so far.*no notes written yet/);
+  const first = defined(pacer.onToolResult('r1', 'web_search', {}));
+  // The parts of the line are separated, and the ask for notes waits for notes.everyResults.
+  assert.match(first, /1 gathering result so far · no notes written yet/);
+  assert.doesNotMatch(first, /Add what these sources/);
   pacer.onToolResult('r1', 'web_fetch', {});
   const third = defined(pacer.onToolResult('r1', 'web_fetch', {}));
   assert.match(third, /3 gathering results so far/);
@@ -55,6 +58,7 @@ test('a write under the notes path resets the count; other writes do not', () =>
   pacer.onToolResult('r1', 'write', { path: 'notes/topic.md' });
   const line = defined(pacer.onToolResult('r1', 'web_search', {}));
   assert.match(line, /last note 1 result ago/);
+  assert.doesNotMatch(line, /Add what these sources/);
 });
 
 test('notes.pathContains decides which writes count as notes', () => {

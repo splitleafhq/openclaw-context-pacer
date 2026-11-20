@@ -88,4 +88,4 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: splitleafhq/.github/.github/workflows/dependabot-auto-merge.yml@02aefa5e33834bd5c0e480f47c115c86a53d59ca # main at #4
+    uses: splitleafhq/.github/.github/workflows/dependabot-auto-merge.yml@2ff5d9c790d0f53d8501f3cceb1ad20de5261565 # main at #22

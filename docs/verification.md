@@ -11,7 +11,8 @@
   - where saves go for each sandbox mode, workspace access and backend, given the working directory a run reports;
   - the leak scan;
   - OpenClaw's own middleware runner, from the SDK, passing an unpaced agent's oversized result unchanged once it is given the pacer's middleware (the test calls the runner directly, not OpenClaw's plugin loader).
-- **Typecheck** against the OpenClaw 2026.10.3 plugin SDK, in CI.
+- **Typecheck** against the plugin SDK of the `openclaw` devDependency in `package.json`, in CI. Dependabot moves it ahead of the floor.
+- **Version metadata**: `openclaw.build`, `openclaw.compat` and `peerDependencies` all name 2026.10.3, the minimum version, checked on a live gateway. When the floor moves to a newer version checked on a live gateway, all of them move to it together.
 - **Replay** of 247 stored `web_search` and `web_fetch` results from one research agent on 2026.10.3 through offload with the default settings: 0 errors. What the model saw fell from 2.88 million characters to 1.02 million. That's size only, not answer quality.
 - **Installs in OpenClaw 2026.10.8:** in an isolated state directory (`OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`), `plugins install git:file://<checkout>@<commit> --force --accept-capabilities`, and the same from a checkout path, then `plugins inspect context-pacer --runtime --json` reports `status: loaded` from `dist/index.js` with the `model_call_started` and `model_call_ended` hooks. Before `dist/` was committed, the git install failed: "requires compiled runtime output for TypeScript entry ./src/index.ts".
 

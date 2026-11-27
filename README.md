@@ -4,7 +4,7 @@ An [OpenClaw](https://docs.openclaw.ai) plugin (id `context-pacer`) for agents t
 
 It never blocks a tool. It changes only what the model sees after a tool has run.
 
-**Status:** experimental. Built and tested against OpenClaw 2026.10.3. Not published on ClawHub or npm; install it from source. What has and hasn't been checked on a live gateway is listed in [docs/verification.md](docs/verification.md).
+**Status:** experimental. Checked on a live gateway at OpenClaw 2026.10.3, its minimum version; CI typechecks against the newer `openclaw` devDependency. Not published on ClawHub or npm; install it from source. What has and hasn't been checked on a live gateway is listed in [docs/verification.md](docs/verification.md).
 
 ## What it does
 

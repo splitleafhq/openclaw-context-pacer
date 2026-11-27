@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["dist/"],
   "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "node"],
   "options": {
     "denyWarnings": true,

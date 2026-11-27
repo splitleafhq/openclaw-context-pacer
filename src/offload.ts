@@ -7,6 +7,7 @@
  * operation below it goes through OpenClaw's root-bounded file API (`root` from the plugin SDK), which refuses a
  * symlink at any point on the path, including one swapped in after a check.
  */
+import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { root } from 'openclaw/plugin-sdk/security-runtime';
 import type { OffloadConfig } from './pacer.ts';
@@ -29,6 +30,10 @@ export interface OffloadRequest {
   inner: ToolResult;
   /** Asks the pacer for room within the run's byte limit. */
   reserve: (bytes: number) => boolean;
+  /** Gives back what `reserve` took when the save fails. */
+  release: (bytes: number) => void;
+  /** Folders of runs the pacer still tracks; cleanup never deletes them, so their saved paths stay readable. */
+  live: ReadonlySet<string>;
 }
 
 export interface Offloaded {
@@ -45,15 +50,22 @@ export const SENTINEL = '.context-pacer-run';
  */
 export const GITIGNORE = '# Saved tool results from the context-pacer plugin; old run folders are deleted.\n*\n';
 const MAX_SPILL_BYTES = 10_000_000;
+// The agent can write in the run folder, so taken names are bounded rather than searched without end.
+const MAX_NAME_TRIES = 100;
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-/** `<YYYY-MM-DD>-<first 8 letters and digits of the run id>`, using the gateway's local date. */
+/**
+ * `<YYYY-MM-DD>-<first 8 letters and digits of the run id>-<8 hex digits of its SHA-256>`, using the gateway's local
+ * date. The hash is needed because OpenClaw run ids can share a long prefix, such as `talk-realtime-consult-<uuid>`
+ * (2026.10.7, realtime-session-harness and gateway talk handlers).
+ */
 export function runFolder(runId: string, now: Date): string {
   const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  return `${date}-${runId.replaceAll(/[^A-Za-z0-9]/g, '').slice(0, 8) || 'run'}`;
+  const hash = createHash('sha256').update(runId).digest('hex').slice(0, 8);
+  return `${date}-${runId.replaceAll(/[^A-Za-z0-9]/g, '').slice(0, 8) || 'run'}-${hash}`;
 }
 
 /** Cuts at the last line break inside the limit when one is reasonably close, so the excerpt ends cleanly. */
@@ -62,11 +74,16 @@ export function excerpt(text: string, max: number): string {
     return text;
   }
   const cut = text.lastIndexOf('\n', max);
-  return text.slice(0, cut > max * 0.8 ? cut : max);
+  if (cut > max * 0.8) {
+    return text.slice(0, cut);
+  }
+  // A lone high surrogate is malformed UTF-16, which a provider may reject.
+  const high = text.charCodeAt(max - 1);
+  return text.slice(0, high >= 0xd800 && high <= 0xdbff ? max - 1 : max);
 }
 
-/** Keeps the newest `maxRuns` folders this plugin created in `directory`, plus the current one. */
-async function prune(workspace: Root, directory: string, maxRuns: number, current: string): Promise<void> {
+/** Keeps the newest `maxRuns` folders this plugin created in `directory`, counting the current one, plus every live one. */
+async function prune(workspace: Root, directory: string, maxRuns: number, current: string, live: ReadonlySet<string>): Promise<void> {
   const entries = await workspace.list(directory, { withFileTypes: true });
   const folders = entries.filter((entry) => entry.isDirectory && !entry.isSymbolicLink && entry.name !== current);
   const marked = await Promise.all(
@@ -74,7 +91,10 @@ async function prune(workspace: Root, directory: string, maxRuns: number, curren
   );
   const ours = marked.filter((entry) => entry !== undefined).toSorted((a, b) => b.mtimeMs - a.mtimeMs);
   await Promise.all(
-    ours.slice(Math.max(0, maxRuns - 1)).map((old) => workspace.remove(`${directory}/${old.name}`, { recursive: true, force: true })),
+    ours
+      .slice(Math.max(0, maxRuns - 1))
+      .filter((old) => !live.has(old.name))
+      .map((old) => workspace.remove(`${directory}/${old.name}`, { recursive: true, force: true })),
   );
 }
 
@@ -87,15 +107,38 @@ async function isMarked(workspace: Root, folder: string): Promise<boolean> {
   }
 }
 
+function alreadyExists(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'already-exists';
+}
+
 /** Leaves an existing file alone, including one the user wrote. With `mkdir` false, a missing folder stays missing. */
 async function createIfAbsent(workspace: Root, path: string, text: string, mkdir = true): Promise<void> {
   try {
     await workspace.create(path, text, { private: true, mkdir });
   } catch (error) {
-    if (!(error instanceof Error && 'code' in error && error.code === 'already-exists')) {
+    if (!alreadyExists(error)) {
       throw error;
     }
   }
+}
+
+/**
+ * Creates `<base>.md`, or `<base>-2.md` and so on when that name is taken. With the conversation-access grant,
+ * `agent_end` resets the run's counters, and a retried attempt keeps the run id and so the same folder (OpenClaw
+ * 2026.10.7, dist/embedded-agent-*.mjs: each pass of the attempt loop reuses `params.runId`). `create` fails rather
+ * than overwrite.
+ */
+async function createUnique(workspace: Root, dir: string, base: string, text: string, n = 1): Promise<string> {
+  const path = `${dir}/${base}${n === 1 ? '' : `-${n}`}.md`;
+  try {
+    await workspace.create(path, text, { private: true });
+    return path;
+  } catch (error) {
+    if (!alreadyExists(error) || n >= MAX_NAME_TRIES) {
+      throw error;
+    }
+  }
+  return createUnique(workspace, dir, base, text, n + 1);
 }
 
 /**
@@ -174,21 +217,25 @@ export async function offload(config: OffloadConfig, wrap: Wrap, req: OffloadReq
     return undefined;
   }
 
-  const workspace = await root(req.workspaceDir);
   const runDir = `${config.directory}/${req.folder}`;
-  await workspace.mkdir(runDir, { private: true });
-  const marker = `${runDir}/${SENTINEL}`;
-  if (!(await workspace.exists(marker))) {
-    await createIfAbsent(workspace, `${runDir}/.gitignore`, GITIGNORE);
-    await createIfAbsent(workspace, marker, 'Created by the context-pacer OpenClaw plugin; old run folders are deleted.\n');
-    await removeLegacyGitignore(workspace, config.directory);
-    await prune(workspace, config.directory, config.maxRuns, req.folder);
+  const base = `${String(req.index).padStart(3, '0')}-${req.name.replaceAll(/[^A-Za-z0-9_-]/g, '')}`;
+  let savedPath: string;
+  try {
+    const workspace = await root(req.workspaceDir);
+    await workspace.mkdir(runDir, { private: true });
+    const marker = `${runDir}/${SENTINEL}`;
+    if (!(await workspace.exists(marker))) {
+      await createIfAbsent(workspace, `${runDir}/.gitignore`, GITIGNORE);
+      await createIfAbsent(workspace, marker, 'Created by the context-pacer OpenClaw plugin; old run folders are deleted.\n');
+      await removeLegacyGitignore(workspace, config.directory);
+      await prune(workspace, config.directory, config.maxRuns, req.folder, req.live);
+    }
+    savedPath = await createUnique(workspace, runDir, base, saved);
+  } catch (error) {
+    req.release(bytes);
+    throw error;
   }
-  const file = `${String(req.index).padStart(3, '0')}-${req.name.replaceAll(/[^A-Za-z0-9_-]/g, '')}.md`;
-  // `create` fails rather than overwrite anything already at that path.
-  await workspace.create(`${runDir}/${file}`, saved, { private: true });
 
-  const savedPath = `${runDir}/${file}`;
   const shown = excerpt(body, config.excerptChars);
   const fullPage = spillText === undefined ? '' : `, plus the full page (${spillText.length.toLocaleString('en-US')} characters)`;
   const pointer = `[pacer] Showing the first ${shown.length.toLocaleString('en-US')} of ${body.length.toLocaleString('en-US')} characters${fullPage}. The full result is saved at ${savedPath}: read it with offset and limit if you need more.`;

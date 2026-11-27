@@ -46,7 +46,7 @@ export interface PacerConfig {
   notes: NotesConfig;
   /** Share of the context budget at which the line says to stop gathering. */
   wrapUpContextFraction: number;
-  /** Most runs tracked in memory at once; the oldest is dropped beyond this. */
+  /** Most runs tracked in memory at once; the one idle longest is dropped beyond this. */
   maxTrackedRuns: number;
   offload: OffloadConfig;
 }
@@ -76,6 +76,7 @@ interface RunState {
   approx?: boolean;
   budget?: number;
   savedBytes: number;
+  offloaded: number;
   /** Saved-file folder, named when the run first saves so a run past midnight keeps one folder. */
   folder?: string;
 }
@@ -144,6 +145,19 @@ function writePath(args: unknown): string | undefined {
   return undefined;
 }
 
+/** What the pacer did in one run. */
+export interface Outcome {
+  gathers: number;
+  offloaded: number;
+  notes: number;
+}
+
+/** The outcome line logged at `agent_end`, which OpenClaw sends once per attempt of a run. */
+export function outcomeLine(runId: string, agentId: string | undefined, o: Outcome): string {
+  const agent = agentId ? ` of agent "${agentId}"` : '';
+  return `run ${runId}${agent}, attempt ended: ${o.gathers} gathering result${o.gathers === 1 ? '' : 's'} paced, ${o.offloaded} saved to files, ${o.notes} note${o.notes === 1 ? '' : 's'} counted`;
+}
+
 export class Pacer {
   readonly config: PacerConfig;
   private readonly runs = new Map<string, RunState>();
@@ -158,14 +172,18 @@ export class Pacer {
 
   private state(runId: string): RunState {
     let s = this.runs.get(runId);
-    if (!s) {
-      s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0 };
+    if (s) {
+      // Re-inserting keeps the map in order of last use, so eviction drops the idlest run, not one still saving.
+      this.runs.delete(runId);
       this.runs.set(runId, s);
-      for (const oldest of this.runs.keys()) {
+    } else {
+      s = { gathers: 0, notes: 0, sinceNote: 0, savedBytes: 0, offloaded: 0 };
+      this.runs.set(runId, s);
+      for (const idlest of this.runs.keys()) {
         if (this.runs.size <= this.config.maxTrackedRuns) {
           break;
         }
-        this.runs.delete(oldest);
+        this.runs.delete(idlest);
       }
     }
     return s;
@@ -190,12 +208,15 @@ export class Pacer {
     s.approx = approx;
   }
 
-  /** Returns the status line for a gathering result, or undefined when the result should pass unchanged. */
-  onToolResult(runId: string, toolName: string, args: unknown): string | undefined {
+  /**
+   * Returns the status line for a gathering result, or undefined when the result should pass unchanged. A `failed`
+   * write is not a note.
+   */
+  onToolResult(runId: string, toolName: string, args: unknown, failed = false): string | undefined {
     const { gatherTools, notes } = this.config;
     if (notes.tools.includes(toolName)) {
       const path = writePath(args);
-      if (notes.pathContains && path && path.includes(notes.pathContains)) {
+      if (!failed && notes.pathContains && path && path.includes(notes.pathContains)) {
         const s = this.state(runId);
         s.notes += 1;
         s.sinceNote = 0;
@@ -223,6 +244,17 @@ export class Pacer {
     return s.folder;
   }
 
+  /** Save folders of the runs still tracked. Without `agent_end`, a run counts until `maxTrackedRuns` drops it. */
+  liveFolders(): Set<string> {
+    const folders = new Set<string>();
+    for (const s of this.runs.values()) {
+      if (s.folder !== undefined) {
+        folders.add(s.folder);
+      }
+    }
+    return folders;
+  }
+
   /** Reserves room for a saved file within the run's byte limit; false means don't save it. */
   reserveBytes(runId: string, bytes: number): boolean {
     const s = this.state(runId);
@@ -233,8 +265,22 @@ export class Pacer {
     return true;
   }
 
-  end(runId: string): void {
+  /** Returns bytes reserved for a save that failed. */
+  releaseBytes(runId: string, bytes: number): void {
+    const s = this.state(runId);
+    s.savedBytes = Math.max(0, s.savedBytes - bytes);
+  }
+
+  /** Counts a result saved to a file in the run's outcome. */
+  recordOffload(runId: string): void {
+    this.state(runId).offloaded += 1;
+  }
+
+  /** Drops the run's counters and returns its outcome, or undefined for a run the pacer never tracked. */
+  end(runId: string): Outcome | undefined {
+    const s = this.runs.get(runId);
     this.runs.delete(runId);
+    return s && { gathers: s.gathers, offloaded: s.offloaded, notes: s.notes };
   }
 
   get trackedRuns(): number {
@@ -246,7 +292,7 @@ export function contextShare(s: Pick<RunState, 'promptTokens' | 'budget'>): numb
   return s.promptTokens && s.budget ? s.promptTokens / s.budget : undefined;
 }
 
-export function statusLine(s: Omit<RunState, 'savedBytes' | 'folder'>, config: PacerConfig): string {
+export function statusLine(s: Omit<RunState, 'savedBytes' | 'folder' | 'offloaded'>, config: PacerConfig): string {
   const share = contextShare(s);
   const tracking = config.notes.pathContains !== undefined;
   const parts = [`${s.gathers} gathering result${s.gathers === 1 ? '' : 's'} so far`];

@@ -82,7 +82,7 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 1000,
-        "description": "Most runs tracked in memory at once; the oldest is dropped beyond this.",
+        "description": "Most runs tracked in memory at once; the one idle longest is dropped beyond this.",
         "default": 50
       },
       "offload": {

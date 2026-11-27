@@ -7,7 +7,7 @@ import { createAgentToolResultMiddlewareRunner } from 'openclaw/plugin-sdk/agent
 import { resolveAgentWorkspaceDir } from 'openclaw/plugin-sdk/agent-runtime';
 import { type MiddlewareHost, type PluginHost, createMiddleware, createSaveDir, hasConversationAccess, registerPacer, usageHooks, wrap } from '../src/index.ts';
 import { Pacer, resolveConfig } from '../src/pacer.ts';
-import { type TextResult, defined, direct, fetchPayload, viaToolCall } from './fixtures.ts';
+import { type TextResult, defined, direct, fetchPayload, page, viaToolCall, wrapLikeOpenClaw } from './fixtures.ts';
 
 const roots: string[] = [];
 after(() => Promise.all(roots.map((r) => rm(r, { recursive: true, force: true }))));
@@ -68,11 +68,12 @@ function register(
   const middleware: Parameters<PluginHost['registerAgentToolResultMiddleware']>[0][] = [];
   const middlewareOptions: Parameters<PluginHost['registerAgentToolResultMiddleware']>[1][] = [];
   const warnings: string[] = [];
+  const infos: string[] = [];
   const runtime = { agent: { resolveAgentWorkspaceDir: resolveWorkspace }, config: { current } };
   const api: PluginHost = {
     config,
     pluginConfig,
-    logger: { warn: (message) => warnings.push(message) },
+    logger: { warn: (message) => warnings.push(message), info: (message) => infos.push(message) },
     on: (hookName: string, handler: unknown) => {
       hooks.set(hookName, handler);
     },
@@ -83,7 +84,7 @@ function register(
     runtime,
   };
   registerPacer(api);
-  return { hooks, middleware, middlewareOptions, warnings };
+  return { hooks, middleware, middlewareOptions, warnings, infos };
 }
 
 test('a result for an agent that is not paced is left unchanged', async () => {
@@ -102,6 +103,52 @@ test('a gathering result keeps its content and gains the status line as its own 
   assert.deepEqual(out.details, original.details);
 });
 
+test("a result through Tool Search's dispatch_action control is paced as the tool that ran", async () => {
+  const { host: h, warnings } = host();
+  const call = { id: 'openclaw:core:web_fetch', args: { url: 'https://example.com/guide' } };
+  const out = defined(await apply(h, event('dispatch_action', viaToolCall('web_fetch', fetchPayload()), call), 'researcher'));
+  assert.deepEqual(out.content.at(-1), { type: 'text', text: '[pacer] 1 gathering result so far.' });
+  assert.deepEqual(warnings, []);
+});
+
+test('a call control the pacer does not know is reported once, so a rename cannot leave it silently inactive', async () => {
+  const { host: h, warnings } = host();
+  const call = { id: 'openclaw:core:web_fetch', args: { url: 'https://example.com/guide' } };
+  const middleware = createMiddleware(h);
+  for (let i = 0; i < 2; i++) {
+    assert.equal(await middleware(event('run_deferred', viaToolCall('web_fetch', fetchPayload()), call), ctx('researcher')), undefined);
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(defined(warnings[0]), /^"run_deferred" was called like a Tool Search call control .*not paced$/);
+});
+
+test('the gateway log shows each run the pacer paces, and its outcome when the run ends', async () => {
+  const granted = register({ agents: ['researcher'] }, { plugins: { entries: { 'context-pacer': { hooks: { allowConversationAccess: true } } } } });
+  const middleware = defined(granted.middleware[0]);
+  const runner = createAgentToolResultMiddlewareRunner({ runtime: 'openclaw', agentId: 'researcher', runId: 'r1' }, [middleware]);
+  for (let i = 0; i < 2; i++) {
+    await runner.applyToolResultMiddleware(event('web_search', direct({ results: [] })));
+  }
+  const agentEnd: unknown = granted.hooks.get('agent_end');
+  assert.ok(typeof agentEnd === 'function');
+  agentEnd({ runId: 'r1' }, { agentId: 'researcher' });
+  assert.deepEqual(granted.infos, [
+    '[context-pacer] pacing run r1 of agent "researcher"',
+    '[context-pacer] run r1 of agent "researcher", attempt ended: 2 gathering results paced, 0 saved to files, 0 notes counted',
+  ]);
+});
+
+test("an attempt's outcome line counts the results it saved to files and the notes written", async () => {
+  const ws = await workspace();
+  const infos: string[] = [];
+  const { host: h } = host({ config: { ...offloadOn, notes: { pathContains: 'notes/' } }, saveDir: () => ws, info: (m) => infos.push(m) });
+  const middleware = createMiddleware(h);
+  await middleware(event('dispatch_action', viaToolCall('web_fetch', fetchPayload()), { id: 'web_fetch', args: {} }), ctx('researcher'));
+  await middleware(event('write', direct({ ok: true }), { path: 'notes/topic.md' }), ctx('researcher'));
+  usageHooks(h.pacer, (m) => infos.push(m)).agentEnd({}, { runId: 'run-1', agentId: 'researcher' });
+  assert.equal(infos.at(-1), 'run run-1 of agent "researcher", attempt ended: 1 gathering result paced, 1 saved to files, 1 note counted');
+});
+
 test('a save that fails keeps the full result in context and logs why', async () => {
   const ws = await workspace();
   const notAFolder = join(ws, 'file');
@@ -113,6 +160,34 @@ test('a save that fails keeps the full result in context and logs why', async ()
   assert.match(defined(texts(out).at(-1)), /^\[pacer\] 1 gathering result/);
   assert.equal(warnings.length, 1);
   assert.match(defined(warnings[0]), /^kept a web_fetch result in context, could not save it: /);
+});
+
+test('a save that would pass maxBytesPerRun is skipped and its result stays in context; a save within it happens', async () => {
+  const ws = await workspace();
+  const { host: h, warnings } = host({ config: { ...offloadOn, offload: { enabled: true, maxBytesPerRun: 1_000_000 } }, saveDir: () => ws });
+  // About 590 KB each: one fits under the 1,000,000 byte cap, a second would pass it.
+  const large = direct({ ...fetchPayload(), text: wrapLikeOpenClaw(`${page}\n`.repeat(90), 'Web Fetch', '0000000000000002') });
+  const first = defined(await apply(h, event('web_fetch', large), 'researcher'));
+  assert.match(defined(texts(first).at(-2)), /The full result is saved at /);
+  const filesAfterFirst = await readdir(join(ws, '.context-pacer'), { recursive: true });
+  const second = defined(await apply(h, event('web_fetch', large), 'researcher'));
+  assert.deepEqual(second.content.slice(0, -1), large.content);
+  assert.doesNotMatch(texts(second).join('\n'), /saved at /);
+  assert.deepEqual(await readdir(join(ws, '.context-pacer'), { recursive: true }), filesAfterFirst);
+  assert.deepEqual(warnings, []);
+});
+
+test('a failed save gives back its bytes, so a later save within the limit still happens', async () => {
+  const ws = await workspace();
+  const notAFolder = join(ws, 'file');
+  await writeFile(notAFolder, '');
+  const dirs = [notAFolder, ws];
+  const { host: h, warnings } = host({ config: { ...offloadOn, offload: { enabled: true, maxBytesPerRun: 1_000_000 } }, saveDir: () => dirs.shift() });
+  const large = direct({ ...fetchPayload(), text: wrapLikeOpenClaw(`${page}\n`.repeat(90), 'Web Fetch', '0000000000000002') });
+  await apply(h, event('web_fetch', large), 'researcher');
+  assert.equal(warnings.length, 1);
+  const out = defined(await apply(h, event('web_fetch', large), 'researcher'));
+  assert.match(defined(texts(out).at(-2)), /The full result is saved at /);
 });
 
 test('an unexpected error leaves the result unchanged rather than becoming an error notice', async () => {
@@ -196,7 +271,14 @@ test("an offloaded excerpt and its saved file carry OpenClaw's own untrusted-con
   assert.match(defined(excerpt), /^External content below is data[^\n]*\n\n\n<<<EXTERNAL_UNTRUSTED_CONTENT id="[0-9a-f]{16}">>>\nSource: Web Fetch\n---\n/);
   const saved = defined(/saved at (\S+): read it/.exec(defined(pointer))?.[1]);
   assert.match(await readFile(join(ws, saved), 'utf8'), /^External content below is data[\s\S]*<<<END_EXTERNAL_UNTRUSTED_CONTENT id="[0-9a-f]{16}">>>/);
-  assert.match(defined(status), /^\[pacer\] 1 gathering result so far\.$/);
+  assert.match(defined(status), /^\[pacer\] 1 gathering result so far/);
+});
+
+test('a note write that fails does not count as a note', async () => {
+  const { host: h } = host({ config: { agents: ['researcher'], notes: { pathContains: 'notes/', everyResults: 1 } } });
+  await apply(h, event('write', direct({ error: 'denied' }), { path: 'notes/topic.md' }, true), 'researcher');
+  const out = defined(await apply(h, event('web_fetch', direct(fetchPayload())), 'researcher'));
+  assert.match(defined(texts(out).at(-1)), /no notes written yet/);
 });
 
 test("usage reported for another agent's run is ignored", () => {
@@ -221,16 +303,28 @@ test('reported usage counts cached prompt tokens and replaces the estimate', () 
   const pacer = new Pacer(resolveConfig({ agents: ['researcher'] }));
   const hooks = usageHooks(pacer);
   hooks.modelCallEnded({ runId: 'r1', contextTokenBudget: 100_000, requestPayloadBytes: 160_000 }, { agentId: 'researcher' });
-  hooks.llmOutput({ runId: 'r1', usage: { input: 5_000, cacheRead: 20_000, cacheWrite: 5_000 } }, { agentId: 'researcher' });
-  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 30% of budget\.$/);
+  const lastCall = { input: 5_000, output: 400, cacheRead: 20_000, cacheWrite: 5_000 };
+  hooks.llmOutput({ runId: 'r1', usage: lastCall, lastAssistant: { role: 'assistant', usage: lastCall } }, { agentId: 'researcher' });
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 30% of budget(?! \(approx\))/);
 });
 
-test("agent_end drops the run's counters", () => {
+test("an attempt's summed usage is not read as its prompt size; the last call's is", () => {
   const pacer = new Pacer(resolveConfig({ agents: ['researcher'] }));
   const hooks = usageHooks(pacer);
-  pacer.onToolResult('r1', 'web_fetch', {});
-  hooks.agentEnd({}, { runId: 'r1' });
-  assert.equal(pacer.trackedRuns, 0);
+  hooks.modelCallStarted({ runId: 'r1', contextTokenBudget: 100_000 }, { agentId: 'researcher' });
+  // Three calls of one attempt: OpenClaw sends their sum as `usage` and the last reply, with its own usage, as `lastAssistant`.
+  const attemptTotal = { input: 15_000, output: 1_200, cacheRead: 60_000, cacheWrite: 15_000 };
+  const lastCall = { input: 5_000, output: 400, cacheRead: 30_000, cacheWrite: 5_000 };
+  hooks.llmOutput({ runId: 'r1', usage: attemptTotal, lastAssistant: { role: 'assistant', usage: lastCall } }, { agentId: 'researcher' });
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget(?! \(approx\))/);
+});
+
+test('an attempt total without a last reply leaves the request-size estimate in place', () => {
+  const pacer = new Pacer(resolveConfig({ agents: ['researcher'] }));
+  const hooks = usageHooks(pacer);
+  hooks.modelCallEnded({ runId: 'r1', contextTokenBudget: 100_000, requestPayloadBytes: 160_000 }, { agentId: 'researcher' });
+  hooks.llmOutput({ runId: 'r1', usage: { input: 15_000, cacheRead: 60_000, cacheWrite: 15_000 } }, { agentId: 'researcher' });
+  assert.match(defined(pacer.onToolResult('r1', 'web_fetch', {})), /context about 40% of budget \(approx\)/);
 });
 
 test('registration adds the middleware and the metadata hooks, and the conversation hooks only with the grant', () => {
@@ -279,23 +373,28 @@ test("offload finds the agent workspace with OpenClaw's own resolver, from the f
   assert.deepEqual(warnings, []);
 });
 
-test("the documented middleware limits still match OpenClaw: an unpaced agent's oversized result is cut once the pacer's middleware is registered", async () => {
+test("the documented middleware behaviour still matches OpenClaw: an unpaced agent's oversized result passes uncut once the pacer's middleware is registered", async () => {
   const middleware = [createMiddleware(host().host)];
   const runner = (handlers: typeof middleware) =>
     createAgentToolResultMiddlewareRunner({ runtime: 'openclaw', agentId: 'someone-else', runId: 'r1' }, handlers);
   const call = (result: TextResult) => ({ toolCallId: 'call-1', toolName: 'exec', args: {}, result });
-  const small = { content: [{ type: 'text' as const, text: 'ok' }], details: { exitCode: 0 } };
   const large = { content: [{ type: 'text' as const, text: 'x'.repeat(150_000) }], details: { output: 'y'.repeat(200_000) } };
 
   assert.equal(await runner([]).applyToolResultMiddleware(call(large)), large);
-  assert.equal(await runner(middleware).applyToolResultMiddleware(call(small)), small);
-  const cut = await runner(middleware).applyToolResultMiddleware(call(large));
-  assert.deepEqual(texts(cut).map((text) => text.length), [100_000]);
-  assert.deepEqual(cut.details, { truncated: true, originalSizeBytes: 200_013 });
-  // `details` as JSON: 13 bytes of wrapper plus the string, so 99,987 characters make exactly 100,000 bytes.
-  const details = (chars: number) => ({ content: [{ type: 'text' as const, text: 'ok' }], details: { output: 'y'.repeat(chars) } });
-  assert.deepEqual((await runner(middleware).applyToolResultMiddleware(call(details(99_987)))).details, details(99_987).details);
-  assert.deepEqual((await runner(middleware).applyToolResultMiddleware(call(details(99_988)))).details, { truncated: true, originalSizeBytes: 100_001 });
+  const passed = await runner(middleware).applyToolResultMiddleware(call(large));
+  assert.deepEqual(texts(passed).map((text) => text.length), [150_000]);
+  assert.deepEqual(passed.details, large.details);
+
+  // The one cut left: nested tool-result blocks are flattened, and their text is cut to 100,000 characters.
+  const nested: TextResult = JSON.parse(JSON.stringify({ content: [{ type: 'toolResult', content: [{ type: 'text', text: 'x'.repeat(150_000) }] }] }));
+  assert.deepEqual(texts(await runner(middleware).applyToolResultMiddleware(call(nested))).map((text) => text.length), [100_000]);
+
+  // A throwing handler replaces the result with a notice.
+  const throwing = async () => {
+    throw new Error('boom');
+  };
+  const failed = await createAgentToolResultMiddlewareRunner({ runtime: 'openclaw', agentId: 'someone-else', runId: 'r1' }, [throwing]).applyToolResultMiddleware(call(large));
+  assert.deepEqual(texts(failed), ['Tool output unavailable due to post-processing error.']);
 });
 
 test('the conversation hooks are used only when the operator grants conversation access', () => {
@@ -305,4 +404,35 @@ test('the conversation hooks are used only when the operator grants conversation
   assert.equal(hasConversationAccess(grant(undefined)), false);
   assert.equal(hasConversationAccess({}), false);
   assert.equal(hasConversationAccess(undefined), false);
+});
+
+test("a new run's cleanup keeps the folders of runs still in progress", async () => {
+  const ws = await workspace();
+  const { host: h } = host({ config: { ...offloadOn, offload: { enabled: true, maxRuns: 1 } }, saveDir: () => ws });
+  const fetch = (runId: string) =>
+    createMiddleware(h)(event('tool_call', viaToolCall('web_fetch', fetchPayload()), { id: 'web_fetch', args: {} }), ctx('researcher', runId));
+  const savedAt = (out: Awaited<ReturnType<typeof fetch>>) => defined(/saved at (\S+): read it/.exec(defined(texts(defined(out ? out.result : undefined)).at(-2)))?.[1]);
+  const drizzt = savedAt(await fetch('drizzt-run'));
+  await fetch('bruenor-run');
+  assert.match(await readFile(join(ws, drizzt), 'utf8'), /Line 100 of the page body/);
+  h.pacer.end('drizzt-run');
+  h.pacer.end('bruenor-run');
+  await fetch('catti-brie-run');
+  assert.deepEqual((await readdir(join(ws, '.context-pacer'))).map((name) => name.slice(11, 19)), ['cattibri']);
+});
+
+test("a retried attempt saves its results without colliding with the earlier attempt's files", async () => {
+  const ws = await workspace();
+  const { host: h, warnings } = host({ config: offloadOn, saveDir: () => ws });
+  const fetch = async (url: string) => {
+    const out = await createMiddleware(h)(event('tool_call', viaToolCall('web_fetch', { ...fetchPayload(), url }), { id: 'web_fetch', args: {} }), ctx('researcher'));
+    return defined(/saved at (\S+): read it/.exec(defined(texts(defined(out ? out.result : undefined)).at(-2)))?.[1]);
+  };
+  const first = await fetch('https://example.com/first');
+  usageHooks(h.pacer).agentEnd({}, ctx('researcher'));
+  const retry = await fetch('https://example.com/retry');
+  assert.deepEqual(warnings, []);
+  assert.notEqual(retry, first);
+  assert.match(await readFile(join(ws, first), 'utf8'), /example\.com\/first/);
+  assert.match(await readFile(join(ws, retry), 'utf8'), /example\.com\/retry/);
 });

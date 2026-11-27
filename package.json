@@ -1,6 +1,6 @@
 {
-  "name": "@seriouslysean/openclaw-context-pacer",
-  "version": "0.1.0",
+  "name": "@splitleafhq/openclaw-context-pacer",
+  "version": "0.1.3",
   "private": true,
   "description": "OpenClaw plugin that paces agents that gather with tools: a status line on each gathering result, and optionally large results moved to files.",
   "keywords": [
@@ -9,11 +9,11 @@
     "agents",
     "context"
   ],
-  "homepage": "https://github.com/seriouslysean/openclaw-context-pacer#readme",
-  "bugs": "https://github.com/seriouslysean/openclaw-context-pacer/issues",
+  "homepage": "https://github.com/splitleafhq/openclaw-context-pacer#readme",
+  "bugs": "https://github.com/splitleafhq/openclaw-context-pacer/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/seriouslysean/openclaw-context-pacer.git"
+    "url": "git+https://github.com/splitleafhq/openclaw-context-pacer.git"
   },
   "type": "module",
   "license": "MIT",
@@ -21,6 +21,7 @@
     "node": ">=24.16"
   },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "typecheck": "tsc -p tsconfig.json",
@@ -31,13 +32,16 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2",
-    "openclaw": "2026.10.5",
-    "oxlint": "1.89.0",
+    "openclaw": "2026.11.5",
+    "oxlint": "1.94.0",
     "typescript": "7.0.2"
   },
   "openclaw": {
     "extensions": [
       "./src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
     ],
     "compat": {
       "pluginApi": ">=2026.10.3",
@@ -47,5 +51,14 @@
       "openclawVersion": "2026.10.3",
       "pluginSdkVersion": "2026.10.3"
     }
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "openclaw.plugin.json"
+  ],
+  "overrides": {
+    "minimatch": "^11.0.4",
+    "npm": "12.2.2"
   }
 }

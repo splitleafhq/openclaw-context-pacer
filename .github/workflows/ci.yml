@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.head_ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+      # The gateway supplies the SDK at run time; the typecheck and tests import the pinned devDependency.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+      # The gateway supplies the SDK at run time; the typecheck and tests import the pinned devDependency.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+      # The gateway supplies the SDK at run time; the typecheck and tests import the pinned devDependency.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+          cache: npm
+      # The gateway supplies the SDK at run time; the typecheck and tests import the pinned devDependency.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      # OpenClaw installs run npm with --ignore-scripts, so the committed dist/ is what runs.
+      - run: git diff --exit-code -- dist && test -z "$(git ls-files --others --exclude-standard -- dist)"
+
+  # Squash-merges a Dependabot PR once the jobs above pass, if the update is a
+  # patch or minor; the steps live in splitleafhq/.github. A new PR job goes in
+  # needs: too, or this merges before it finishes.
+  automerge:
+    needs: [lint, typecheck, test, build]
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: splitleafhq/.github/.github/workflows/dependabot-auto-merge.yml@2ff5d9c790d0f53d8501f3cceb1ad20de5261565 # main at #22

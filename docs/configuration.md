@@ -4,19 +4,19 @@ Config lives at `plugins.entries.context-pacer.config`. Anything missing or inva
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agents` | `[]` | Agent ids to pace. Empty paces no agent, but while the plugin is enabled OpenClaw still applies its middleware limits to the tool results of every agent on its `openclaw` runtime ([Every agent's results](how-it-works.md#every-agents-results)) |
+| `agents` | `[]` | Agent ids to pace. Empty paces no agent, but while the plugin is enabled every agent's tool results on OpenClaw's `openclaw` runtime pass through its middleware runner, which cut results past its limits up to 2026.10.8 ([Every agent's results](how-it-works.md#every-agents-results)) |
 | `gatherTools` | `["web_search", "web_fetch"]` | Tools whose results count as gathering and get the status line |
 | `notes.pathContains` | unset | A write counts as a note when its path contains this. Unset turns note tracking off |
 | `notes.tools` | `["write", "edit"]` | Tools that can write a note |
 | `notes.everyResults` | `3` | Ask for a note after this many gathering results without one (1–20) |
 | `wrapUpContextFraction` | `0.6` | Share of the context budget at which the line says to stop gathering and write the answer (0.2–0.95) |
-| `maxTrackedRuns` | `50` | Most runs tracked in memory at once (1–1000) |
+| `maxTrackedRuns` | `50` | Most runs tracked in memory at once (1–1000); the one idle longest is dropped beyond this |
 | `offload.enabled` | `false` | Move large gathering results to files |
 | `offload.thresholdChars` | `6000` | Offload once the text the model would see exceeds this many characters (1,000–100,000) |
 | `offload.excerptChars` | `4000` | Characters shown in place of an offloaded result (500–20,000, and at most `thresholdChars` − 1,000) |
 | `offload.directory` | `".context-pacer"` | Workspace-relative folder for saved results |
-| `offload.maxRuns` | `10` | Run folders kept in the directory (1–100) |
-| `offload.maxBytesPerRun` | `25000000` | Most bytes saved per run (1 MB–500 MB); past this, results stay in context. With the conversation-access grant, it restarts when a run makes another attempt (see below) |
+| `offload.maxRuns` | `10` | Run folders kept in the directory (1–100), plus the folders of runs still in progress |
+| `offload.maxBytesPerRun` | `25000000` | Most bytes saved per run (1 MB–500 MB); past this, results stay in context. A save that fails gives its bytes back. With the conversation-access grant, it restarts when a run makes another attempt (see below) |
 
 OpenClaw has no convention for an agent's working notes; its `memory/` folder is durable memory that memory search indexes and later sessions load, so it isn't a default here.
 
@@ -42,9 +42,11 @@ openclaw config set plugins.entries.context-pacer.config '<json>' --strict-json
 
 ## Reported usage
 
-By default the pacer estimates the prompt's size from each model request (bytes / 4) and marks the share "(approx)". It overestimates, so the wrap-up nudge comes early rather than late.
+During a run the pacer estimates the prompt's size from each model request (bytes / 4) and marks the share "(approx)". The estimate can run low: on one local model it read 0.64 to 0.80 of the real prompt size, so at the default `wrapUpContextFraction` of 0.6 the nudge came at 81 to 84% of the real budget (three runs on OpenClaw 2026.11.3). Bytes per token depends on the model's tokenizer and on the content, so check the "(approx)" share against the reported usage in your own transcripts, and lower `wrapUpContextFraction` if it runs low.
 
-For exact token counts, grant the plugin conversation access:
+The grant below doesn't change that. OpenClaw reports usage in `llm_output`, which describes an attempt's output and arrives at its end (OpenClaw 2026.10.7, `completeEmbeddedAttemptResult`), and documents no token counts on `model_call_ended` ([prompt and session hooks](https://docs.openclaw.ai/plugins/hooks/prompt-and-session), 2026.11.3). So the share stays "(approx)" during an attempt. What the grant adds is the outcome line at the end of each attempt. The reported size is recorded then, but `agent_end` clears the run's counters straight after, so it reaches a status line only where `agent_end` doesn't follow, such as after a `before_agent_finalize` revision.
+
+To grant the plugin conversation access:
 
 ```sh
 openclaw config set plugins.entries.context-pacer.hooks.allowConversationAccess true --strict-json
@@ -55,7 +57,7 @@ OpenClaw gates the `llm_output` hook, which reports usage, and the `agent_end` h
 
 ## Where saved files go
 
-Offloaded results are saved under `<workspace>/<offload.directory>/<YYYY-MM-DD>-<run>/<NNN>-<tool>.md`, where `<workspace>` is the workspace the agent's tools run in. The date is the gateway's local date when the run first saves, and `<run>` is the first eight letters and digits of OpenClaw's run id.
+Offloaded results are saved under `<workspace>/<offload.directory>/<YYYY-MM-DD>-<run>-<hash>/<NNN>-<tool>.md`, where `<workspace>` is the workspace the agent's tools run in. The date is the gateway's local date when the run first saves, `<run>` is the first eight letters and digits of OpenClaw's run id, and `<hash>` is the first eight hex digits of the run id's SHA-256, so runs whose ids share a prefix get separate folders. `<NNN>` counts the run's gathering results; when that name is taken, such as by an earlier attempt of the same run, the file is named `<NNN>-<tool>-2.md`, then `-3`, and so on.
 
 - **In the workspace the agent's tools run in.**
 
@@ -72,8 +74,8 @@ Offloaded results are saved under `<workspace>/<offload.directory>/<YYYY-MM-DD>-
 - **Files are private:** mode 0600, in folders with mode 0700.
 - **Path rules:** `offload.directory` must be a plain relative path; a leading dot is fine, `.` and `..` are not. Anything else falls back to the default.
 - **No symlinks, no overwrites:** unless the workspace is read-only to it, the agent can write there too, so every save goes through OpenClaw's root-bounded file API (`root` from `openclaw/plugin-sdk/security-runtime`). It refuses a symlink anywhere below the workspace, including a dangling one and one swapped in during a save, and never replaces an existing file. How strictly a swap is caught depends on the platform and fs-safe's native helper (`@openclaw/fs-safe` 0.24.2, bundled with OpenClaw 2026.10.3, `docs/security-model.md`).
-- **Cleanup:** each run folder holds a `.context-pacer-run` marker. When a run saves its first file, marked folders beyond the newest `offload.maxRuns` are deleted. Folders without the marker are never touched.
-- **Shared sandbox workspaces:** under `none` or `ro`, the sandbox workspace follows the sandbox scope. With `scope: "shared"`, every sandboxed agent saves into the same one, so their run folders share one `offload.maxRuns` budget, and cleanup can delete another agent's older folders (OpenClaw 2026.10.3, `src/agents/sandbox/shared.ts`).
+- **Cleanup:** each run folder holds a `.context-pacer-run` marker. When a run saves its first file, marked folders beyond the newest `offload.maxRuns` are deleted, except those of runs the pacer still tracks. A run is tracked until `maxTrackedRuns` other runs have been active since its last result, so at most `offload.maxRuns` + `maxTrackedRuns` folders are kept. With the conversation-access grant, `agent_end` also stops tracking a run at the end of each attempt, so a retried run's folder is unprotected until the retry saves again (#14). Folders without the marker are never touched.
+- **Shared sandbox workspaces:** under `none` or `ro`, the sandbox workspace follows the sandbox scope. With `scope: "shared"`, every sandboxed agent saves into the same one, so their run folders share one `offload.maxRuns` budget, and cleanup can delete another agent's older, finished folders (OpenClaw 2026.10.3, `src/agents/sandbox/shared.ts`).
 
 ## How the defaults were chosen
 

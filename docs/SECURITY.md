@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report it privately through GitHub's [private vulnerability reporting](https://github.com/seriouslysean/openclaw-context-pacer/security/advisories/new). That opens a draft advisory that only you and the maintainer can see. Don't open a public issue.
+Report it privately through GitHub's [private vulnerability reporting](https://github.com/splitleafhq/openclaw-context-pacer/security/advisories/new). That opens a draft advisory that only you and the maintainer can see. Don't open a public issue.
 
 The link works only while private vulnerability reporting is enabled under Settings → Advanced Security. If the page isn't available, the setting is off. A public issue saying so, without describing what you found, is enough to get it turned on.
 
@@ -20,5 +20,5 @@ The plugin sees untrusted web content and, with offload on, writes files where a
 ## What isn't
 
 - **Someone who can already write to the agent's workspace or the OpenClaw config.** They already control the agent, and nothing this plugin does changes that.
-- **OpenClaw's middleware limits on every agent's results.** While the plugin is enabled, OpenClaw cuts any agent's tool result past its limits before the pacer sees it. That's OpenClaw's behaviour, documented in [How it works](how-it-works.md#every-agents-results), not the pacer changing a result.
+- **OpenClaw's middleware limits on every agent's results.** On OpenClaw 2026.10.8 and earlier, while the plugin is enabled, OpenClaw cuts any agent's tool result past its limits before the pacer sees it; 2026.10.10 and later don't. That's OpenClaw's behaviour, documented in [How it works](how-it-works.md#every-agents-results), not the pacer changing a result.
 - **Prompt injection in fetched pages.** That's an OpenClaw and model concern. The plugin's job is to keep the label on, not to judge content.

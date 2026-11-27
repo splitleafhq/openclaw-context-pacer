@@ -1,0 +1,21 @@
+#!/bin/sh
+# Runs what CI runs; prints one line per step and exits nonzero if any step failed.
+status=0
+for step in lint typecheck test build; do
+  if out=$(npm run --silent "$step" 2>&1); then
+    echo "ok   $step"
+  else
+    echo "FAIL $step"
+    echo "$out"
+    status=1
+  fi
+done
+# OpenClaw installs run npm with --ignore-scripts, so the committed dist/ is what runs.
+if git diff --exit-code --quiet -- dist && test -z "$(git ls-files --others --exclude-standard -- dist)"; then
+  echo "ok   dist"
+else
+  echo "FAIL dist: commit the rebuilt dist/"
+  git status --short -- dist
+  status=1
+fi
+exit $status

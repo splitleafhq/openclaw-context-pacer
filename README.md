@@ -21,25 +21,26 @@ The line escalates in two steps:
 **Offload (optional, off by default).** A large result is saved to a file in the workspace the agent's tools run in. The model gets an excerpt and the file's path in its place:
 
 ```text
-[pacer] Showing the first 3,962 of 6,337 characters. The full result is saved at .context-pacer/2026-10-15-3f9c1a2b/004-web_fetch.md: read it with offset and limit if you need more.
+[pacer] Showing the first 3,962 of 6,337 characters. The full result is saved at .context-pacer/2026-10-15-3f9c1a2b-9d41e07c/004-web_fetch.md: read it with offset and limit if you need more.
 ```
 
 Nothing is dropped: the agent can `read` the rest when it needs it. Offload applies to unsandboxed agents and to Docker or Podman sandboxes. With `workspaceAccess` `"none"` (OpenClaw's default) or `"ro"`, files go in the sandbox workspace rather than the agent workspace. In a replay of 247 stored results from one research agent, offload cut the text the model saw by about 65%. That measures size only, not answer quality.
 
 ## Install
 
-From a checkout:
+Pinned to a tag or commit:
 
 ```sh
-openclaw plugins install --link --force /path/to/openclaw-context-pacer
+openclaw plugins install git:github.com/splitleafhq/openclaw-context-pacer@<tag or commit> --force --accept-capabilities
 openclaw plugins enable context-pacer
 openclaw config set plugins.entries.context-pacer.config '{"agents":["<agent id>"],"offload":{"enabled":true}}' --strict-json
 openclaw gateway restart
 ```
 
+- OpenClaw loads the committed `dist/` through `openclaw.runtimeExtensions`, from a git install, a copy, a load path or `--link` alike (`docs/plugins/sdk-entrypoints/package-entries.md:36-38`, 2026.10.8), checked on 2026.10.8: an install runs npm without scripts, so nothing is built then, and a change to `src/` runs only after `npm run build`.
 - `--force` confirms a source that isn't on ClawHub.
 - Installed plugins can rewrite tool results only when they're explicitly enabled, which is what `plugins enable` does.
-- It paces no agent until `agents` lists at least one agent id. While it's enabled, OpenClaw applies its middleware limits to the tool results of every agent on its `openclaw` runtime, even with `agents` empty (see [How it works](docs/how-it-works.md#every-agents-results)). To leave them alone, disable the plugin.
+- It paces no agent until `agents` lists at least one agent id. While it's enabled, every tool result of every agent on OpenClaw's `openclaw` runtime passes through OpenClaw's middleware runner, even with `agents` empty. OpenClaw 2026.10.8 and earlier also cut results past its middleware limits there; 2026.10.10 and later don't (see [How it works](docs/how-it-works.md#every-agents-results)). To take the plugin out of that path, disable it.
 
 To check that it loaded, run `openclaw plugins inspect context-pacer --runtime --json`.
 
@@ -47,11 +48,11 @@ To turn it off, run `openclaw plugins disable context-pacer` and restart. Saved 
 
 ## Bounds
 
-- **Scoped:** the pacer changes only results from agents in `agents`, and only from `gatherTools`. Registering it makes OpenClaw cut any agent's tool result past its middleware limits, such as text over 100,000 characters (see [How it works](docs/how-it-works.md#every-agents-results)).
+- **Scoped:** the pacer changes only results from agents in `agents`, and only from `gatherTools`. On OpenClaw 2026.10.8 and earlier, registering it also made OpenClaw cut any agent's tool result past its middleware limits, such as text over 100,000 characters; 2026.10.10 and later don't (see [How it works](docs/how-it-works.md#every-agents-results)).
 - **Never blocks:** it doesn't veto, cap or rewrite tool calls.
 - **Fails open:** any error leaves the result as it was and logs a warning. If a save fails, the full result stays in context.
 - **Agnostic:** context share comes from the budget OpenClaw resolves for the run, so no model name or window size is hard-coded.
-- **No conversation access by default:** it reads only call metadata, and estimates prompt size from the request's size. Grant `hooks.allowConversationAccess` to use the reported token counts instead (see [Configuration](docs/configuration.md#reported-usage)).
+- **No conversation access by default:** it reads only call metadata, and estimates prompt size from the request's size. That estimate can run low, so check it and tune `wrapUpContextFraction`. Granting `hooks.allowConversationAccess` adds the outcome line at each attempt's end; usage is reported only then, so the share stays "(approx)" during an attempt (see [Configuration](docs/configuration.md#reported-usage)).
 - **Keeps the untrusted-content label:** excerpts and saved files of web content carry OpenClaw's warning and markers.
 - **Doesn't hide loops:** OpenClaw's loop detection records each outcome before this plugin runs.
 
@@ -68,7 +69,10 @@ Requires Node 24.16 or later.
 ```sh
 npm ci --ignore-scripts
 npm run lint && npm run typecheck && npm test
+npm run build
 ```
+
+Commit `dist/` with any change to `src/`; CI fails when it doesn't match a fresh build.
 
 See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
 

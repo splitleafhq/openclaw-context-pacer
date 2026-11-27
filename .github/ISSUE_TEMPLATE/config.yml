@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/seriouslysean/openclaw-context-pacer/security/advisories/new
+    url: https://github.com/splitleafhq/openclaw-context-pacer/security/advisories/new
     about: Report it privately through GitHub rather than as a public issue. The policy is in docs/SECURITY.md.

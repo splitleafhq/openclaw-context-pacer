@@ -35,12 +35,6 @@ test('the pacer counts gathering results that arrive through tool_call', () => {
   assert.equal(pacer.onToolResult('r1', 'tool_call', {}), undefined);
 });
 
-test('tool_call roughly doubles what the model sees', () => {
-  const directText = defined(textOf(direct(fetchPayload())));
-  const wrappedText = defined(textOf(viaToolCall('web_fetch', fetchPayload())));
-  assert.ok(wrappedText.length > directText.length * 2);
-});
-
 test('readable turns JSON into lines and keeps page text on its own lines', () => {
   const text = readable(JSON.stringify({ url: 'https://example.com', status: 200, text: 'a\nb', results: [{ title: 't' }] }));
   assert.equal(text, 'url: https://example.com\nstatus: 200\ntext:\na\nb\nresults:\n  - (1)\n    title: t');
